@@ -16,6 +16,10 @@ final class Session {
     var authError: String?
     var isWorking = false
 
+    /// Bumped after any write (add/edit/delete/rename/ingest/contact) so list
+    /// screens can reload — keeps the Library in sync with detail-screen edits.
+    private(set) var dataVersion = 0
+
     private let tokens = TokenStore()
     let api: APIClient
 
@@ -75,16 +79,22 @@ final class Session {
     // Capture (M2) — the AI ingest path.
     func ingestText(_ text: String, title: String? = nil) async throws -> IngestResponse {
         let cleanTitle = (title?.isEmpty ?? true) ? nil : title
-        return try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
+        let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
+        dataVersion += 1
+        return res
     }
 
     func ingestURL(_ url: String) async throws -> IngestResponse {
-        try await api.request("/api/ingest", .post, body: IngestURL(url: url))
+        let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestURL(url: url))
+        dataVersion += 1
+        return res
     }
 
     func ingestImage(base64: String, mediaType: String = "image/jpeg") async throws -> IngestResponse {
         let title = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
-        return try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
+        let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
+        dataVersion += 1
+        return res
     }
 
     // Ask (M3) — grounded Q&A over the library.
@@ -95,15 +105,30 @@ final class Session {
     // Entity detail actions
     func addInsight(entityId: Int, text: String) async throws {
         let _: OKResponse = try await api.request("/api/insights", .post, body: AddInsightRequest(entityId: entityId, text: text))
+        dataVersion += 1
     }
 
     func deleteInsight(_ id: Int) async throws {
         let _: OKResponse = try await api.request("/api/insights/\(id)", .delete)
+        dataVersion += 1
+    }
+
+    func editInsight(_ id: Int, text: String) async throws {
+        let _: OKResponse = try await api.request("/api/insights/\(id)", .patch, body: TextRequest(text: text))
+        dataVersion += 1
+    }
+
+    /// Rename an entity. Throws APIError.server with a friendly message on a
+    /// same-type name collision (the backend suggests merging).
+    func renameEntity(_ id: Int, name: String) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(id)", .patch, body: NameRequest(name: name))
+        dataVersion += 1
     }
 
     /// "Log catch-up" (person) / "Mark revisited" (topic) — records a touch.
     func logContact(entityId: Int) async throws {
         let _: OKResponse = try await api.request("/api/entities/\(entityId)/contact", .post)
+        dataVersion += 1
     }
 
     /// Raw image bytes for a source (M0/D105 attachments).

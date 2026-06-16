@@ -8,6 +8,19 @@ struct EntityDetailView: View {
     @State private var showAdd = false
     @State private var working = false
 
+    // Rename
+    @State private var showRename = false
+    @State private var renameDraft = ""
+    @State private var actionError: String?
+
+    // Edit insight
+    @State private var editing: Insight?
+
+    private var titleName: String {
+        if case .loaded(let d) = state { return d.name }
+        return name
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -27,9 +40,9 @@ struct EntityDetailView: View {
                                      detail: "Notes you capture about \(detail.name) will show here.")
                     } else {
                         ForEach(detail.insights) { insight in
-                            InsightRow(insight: insight) { id in
-                                Task { await delete(id) }
-                            }
+                            InsightRow(insight: insight,
+                                       onEdit: { editing = insight },
+                                       onDelete: { id in Task { await delete(id) } })
                         }
                     }
                 }
@@ -38,12 +51,41 @@ struct EntityDetailView: View {
             .padding(.bottom, 28)
         }
         .background(Theme.bg)
-        .navigationTitle(name)
+        .navigationTitle(titleName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { renameDraft = titleName; showRename = true } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").tint(Theme.ink)
+                }
+            }
+        }
         .task { if case .idle = state { await load() } }
         .sheet(isPresented: $showAdd) {
             CaptureView(onIngested: { Task { await reload() } },
-                        pinnedEntity: (id: entityId, name: name))
+                        pinnedEntity: (id: entityId, name: titleName))
+        }
+        .sheet(item: $editing) { insight in
+            TextEditSheet(title: "Edit insight", initial: insight.text) { newText in
+                await edit(insight.id, newText)
+            }
+        }
+        .alert("Rename", isPresented: $showRename) {
+            TextField("Name", text: $renameDraft)
+            Button("Save") { Task { await rename() } }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Couldn't rename", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
         }
     }
 
@@ -105,10 +147,27 @@ struct EntityDetailView: View {
         try? await session.deleteInsight(id)
         await reload()
     }
+
+    private func edit(_ id: Int, _ text: String) async {
+        try? await session.editInsight(id, text: text)
+        await reload()
+    }
+
+    private func rename() async {
+        let next = renameDraft.trimmingCharacters(in: .whitespaces)
+        guard !next.isEmpty else { return }
+        do {
+            try await session.renameEntity(entityId, name: next)
+            await reload()
+        } catch {
+            actionError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+    }
 }
 
 private struct InsightRow: View {
     let insight: Insight
+    var onEdit: () -> Void
     var onDelete: (Int) -> Void
 
     var body: some View {
@@ -127,6 +186,7 @@ private struct InsightRow: View {
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
         .contextMenu {
+            Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
             Button(role: .destructive) { onDelete(insight.id) } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -140,3 +200,51 @@ private struct InsightRow: View {
     }
 }
 
+/// Reusable single-field text editor sheet (edit insight, etc.).
+struct TextEditSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let initial: String
+    var onSave: (String) async -> Void
+
+    @State private var text: String
+    @State private var saving = false
+
+    init(title: String, initial: String, onSave: @escaping (String) async -> Void) {
+        self.title = title
+        self.initial = initial
+        self.onSave = onSave
+        _text = State(initialValue: initial)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                TextEditor(text: $text)
+                    .font(.troveMono(14))
+                    .frame(minHeight: 160)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusField))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusField).stroke(Theme.line, lineWidth: 1))
+                    .padding(20)
+            }
+            .background(Theme.bg)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.tint(Theme.ink)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saving = true
+                        Task { await onSave(text.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() }
+                    }
+                    .tint(Theme.ink)
+                    .disabled(saving || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}

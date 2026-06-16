@@ -62,6 +62,7 @@ struct PulseView: View {
             }
         }
         .task { if case .idle = state { await load() } }
+        .onChange(of: session.dataVersion) { Task { await load() } }
     }
 
     // MARK: tile

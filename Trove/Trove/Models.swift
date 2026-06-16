@@ -217,6 +217,9 @@ struct AddInsightRequest: Encodable, Sendable {
     let text: String
 }
 
+struct TextRequest: Encodable, Sendable { let text: String }
+struct NameRequest: Encodable, Sendable { let name: String }
+
 struct SwipeRequest: Encodable, Sendable {
     let entityId: Int
     let direction: String       // left | right

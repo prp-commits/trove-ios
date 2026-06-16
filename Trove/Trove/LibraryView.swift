@@ -47,6 +47,7 @@ struct LibraryView: View {
         }
         .task { if case .idle = state { await load() } }
         .refreshable { await load() }
+        .onChange(of: session.dataVersion) { Task { await load() } }
         .sheet(isPresented: $showCapture) {
             CaptureView(onIngested: { Task { await load() } })
         }
