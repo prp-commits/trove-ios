@@ -11,7 +11,7 @@ struct MainTabView: View {
             ReviewView()
                 .tabItem { Label("Review", systemImage: "rectangle.portrait.on.rectangle.portrait") }
 
-            ComingSoonView(title: "Pulse", subtitle: "Who needs attention, at a glance.")
+            PulseView()
                 .tabItem { Label("Pulse", systemImage: "waveform.path.ecg") }
 
             ProfileView(user: user)

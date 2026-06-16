@@ -92,6 +92,12 @@ final class Session {
         try await api.request("/api/ask", .post, body: AskRequest(question: question))
     }
 
+    // Pulse (M5)
+    func loadPulse() async throws -> [PulseItem] {
+        let res: HealthResponse = try await api.request("/api/relationships/health")
+        return res.items
+    }
+
     // Review deck (M4)
     func loadDeck(n: Int = 15) async throws -> [DeckCard] {
         let res: DeckResponse = try await api.request("/api/review/deck?n=\(n)")

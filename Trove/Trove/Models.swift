@@ -124,6 +124,36 @@ struct IngestImage: Encodable, Sendable {
     let title: String?
 }
 
+// MARK: - Pulse (M5)
+
+struct HealthResponse: Decodable, Sendable {
+    let items: [PulseItem]
+}
+
+struct PulseItem: Decodable, Identifiable, Sendable {
+    let id: Int
+    let name: String
+    let type: String
+    let insightCount: Int?
+    let daysSince: Int?
+    let threshold: Int?
+    let status: String          // upcoming | warm | cooling | reach_out
+    let upcoming: Upcoming?
+
+    var isPerson: Bool { type == "person" }
+
+    struct Upcoming: Decodable, Sendable {
+        let eventId: Int?
+        let eventType: String?
+        let eventDate: String?
+        let daysUntil: Int?
+        let kind: String?
+        let insightId: Int?
+        let insightText: String?
+        let unconfirmed: Bool?
+    }
+}
+
 // MARK: - Review deck (M4)
 
 struct DeckResponse: Decodable, Sendable {
