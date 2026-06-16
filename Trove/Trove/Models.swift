@@ -55,3 +55,43 @@ struct RefreshRequest: Encodable, Sendable {
 struct LogoutRequest: Encodable, Sendable {
     let refreshToken: String
 }
+
+// MARK: - Library (M1)
+
+/// A row from `GET /api/entities` (extra fields are ignored).
+struct Entity: Decodable, Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+    let type: String
+    let insightCount: Int?
+
+    var isPerson: Bool { type == "person" }
+    var insightCountText: String {
+        let n = insightCount ?? 0
+        return "\(n) insight\(n == 1 ? "" : "s")"
+    }
+}
+
+/// `GET /api/entities/:id` — the full profile.
+struct EntityDetail: Decodable, Identifiable, Sendable {
+    let id: Int
+    let name: String
+    let type: String
+    let aliases: [String]?
+    let lastInteractionAt: String?
+    let insights: [Insight]
+
+    var isPerson: Bool { type == "person" }
+}
+
+struct Insight: Decodable, Identifiable, Sendable {
+    let id: Int
+    let text: String
+    let createdAt: String?
+    let sourceKind: String?
+    let sourceId: Int?
+    let hasImage: Int?   // SQLite returns 1/0, not a JSON bool
+
+    var hasPhoto: Bool { (hasImage ?? 0) == 1 }
+}
+

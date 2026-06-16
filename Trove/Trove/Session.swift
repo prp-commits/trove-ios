@@ -62,6 +62,16 @@ final class Session {
         state = .signedOut
     }
 
+    // MARK: - Data (M1)
+
+    func loadEntities() async throws -> [Entity] {
+        try await api.request("/api/entities")
+    }
+
+    func loadEntity(_ id: Int) async throws -> EntityDetail {
+        try await api.request("/api/entities/\(id)")
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil

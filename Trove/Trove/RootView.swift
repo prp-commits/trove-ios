@@ -13,7 +13,7 @@ struct RootView: View {
             case .signedOut:
                 SignInView()
             case .signedIn(let user):
-                HomeView(user: user)
+                MainTabView(user: user)
             }
         }
         .environment(session)
