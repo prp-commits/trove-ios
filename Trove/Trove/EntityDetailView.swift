@@ -2,11 +2,27 @@ import SwiftUI
 
 struct EntityDetailView: View {
     @Environment(Session.self) private var session
+    @Environment(\.dismiss) private var dismiss
     let entityId: Int
     let name: String
     @State private var state: Loadable<EntityDetail> = .idle
     @State private var showAdd = false
     @State private var working = false
+    @State private var showDelete = false
+
+    // Last-insight delete → cascades to the entity, so confirm.
+    @State private var pendingInsightDelete: Insight?
+    @State private var showInsightDelete = false
+
+    private var isArchivedNow: Bool {
+        if case .loaded(let d) = state { return d.isArchived }
+        return false
+    }
+
+    private var insightCount: Int {
+        if case .loaded(let d) = state { return d.insights.count }
+        return 0
+    }
 
     // Rename
     @State private var showRename = false
@@ -42,7 +58,7 @@ struct EntityDetailView: View {
                         ForEach(detail.insights) { insight in
                             InsightRow(insight: insight,
                                        onEdit: { editing = insight },
-                                       onDelete: { id in Task { await delete(id) } })
+                                       onDelete: { requestDelete(insight) })
                         }
                     }
                 }
@@ -58,6 +74,19 @@ struct EntityDetailView: View {
                 Menu {
                     Button { renameDraft = titleName; showRename = true } label: {
                         Label("Rename", systemImage: "pencil")
+                    }
+                    if isArchivedNow {
+                        Button { Task { await restore() } } label: {
+                            Label("Restore", systemImage: "tray.and.arrow.up")
+                        }
+                    } else {
+                        Button { Task { await archive() } } label: {
+                            Label("Archive", systemImage: "archivebox")
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) { showDelete = true } label: {
+                        Label("Delete", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle").tint(Theme.ink)
@@ -86,6 +115,21 @@ struct EntityDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(actionError ?? "")
+        }
+        .confirmationDialog("Delete \(titleName)?", isPresented: $showDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await deleteEntity() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the entity and all of its insights.")
+        }
+        .confirmationDialog("Delete the only insight?", isPresented: $showInsightDelete,
+                            titleVisibility: .visible, presenting: pendingInsightDelete) { ins in
+            Button("Delete insight & \(titleName)", role: .destructive) {
+                Task { await deleteAndDismiss(ins.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This is \(titleName)'s only insight, so deleting it also removes \(titleName).")
         }
     }
 
@@ -143,9 +187,23 @@ struct EntityDetailView: View {
         working = false
     }
 
+    private func requestDelete(_ insight: Insight) {
+        if insightCount <= 1 {
+            pendingInsightDelete = insight
+            showInsightDelete = true       // confirm: this removes the entity too
+        } else {
+            Task { await delete(insight.id) }
+        }
+    }
+
     private func delete(_ id: Int) async {
         try? await session.deleteInsight(id)
         await reload()
+    }
+
+    private func deleteAndDismiss(_ id: Int) async {
+        try? await session.deleteInsight(id)
+        dismiss()   // the entity is gone with its last insight; Library refreshes via dataVersion
     }
 
     private func edit(_ id: Int, _ text: String) async {
@@ -163,12 +221,27 @@ struct EntityDetailView: View {
             actionError = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
     }
+
+    private func archive() async {
+        try? await session.archiveEntity(entityId)
+        dismiss()   // leaves the default Library view; visible under "Archived"
+    }
+
+    private func restore() async {
+        try? await session.restoreEntity(entityId)
+        await reload()
+    }
+
+    private func deleteEntity() async {
+        try? await session.deleteEntity(entityId)
+        dismiss()
+    }
 }
 
 private struct InsightRow: View {
     let insight: Insight
     var onEdit: () -> Void
-    var onDelete: (Int) -> Void
+    var onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -187,7 +260,7 @@ private struct InsightRow: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
         .contextMenu {
             Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
-            Button(role: .destructive) { onDelete(insight.id) } label: {
+            Button(role: .destructive) { onDelete() } label: {
                 Label("Delete", systemImage: "trash")
             }
         }

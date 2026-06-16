@@ -72,8 +72,10 @@ struct Entity: Decodable, Identifiable, Hashable, Sendable {
     let name: String
     let type: String
     let insightCount: Int?
+    let archivedAt: String?
 
     var isPerson: Bool { type == "person" }
+    var isArchived: Bool { archivedAt != nil }
     var insightCountText: String {
         let n = insightCount ?? 0
         return "\(n) insight\(n == 1 ? "" : "s")"
@@ -87,9 +89,11 @@ struct EntityDetail: Decodable, Identifiable, Sendable {
     let type: String
     let aliases: [String]?
     let lastInteractionAt: String?
+    let archivedAt: String?
     let insights: [Insight]
 
     var isPerson: Bool { type == "person" }
+    var isArchived: Bool { archivedAt != nil }
 }
 
 struct Insight: Decodable, Identifiable, Sendable {

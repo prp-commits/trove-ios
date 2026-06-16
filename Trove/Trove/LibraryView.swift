@@ -6,6 +6,12 @@ struct LibraryView: View {
     @State private var query = ""
     @State private var showCapture = false
     @State private var showAsk = false
+    @State private var scope: Scope = .all
+
+    enum Scope: String, CaseIterable, Identifiable {
+        case all = "All", people = "People", topics = "Topics", archived = "Archived"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,12 +28,13 @@ struct LibraryView: View {
                             Task { await load() }
                         }
                     case .loaded(let entities):
-                        let shown = filter(entities)
+                        let shown = visible(entities)
                         if entities.isEmpty {
                             MessageBlock(title: "Start your Trove",
                                          detail: "Add the people and topics you want to keep close.")
                         } else if shown.isEmpty {
-                            MessageBlock(title: "No matches", detail: "Nothing matches “\(query)”.")
+                            MessageBlock(title: scope == .archived ? "Nothing archived" : "No matches",
+                                         detail: query.isEmpty ? "Nothing in this view yet." : "Nothing matches “\(query)”.")
                         } else {
                             ForEach(shown) { entity in
                                 NavigationLink(value: entity) { EntityRow(entity: entity) }
@@ -92,14 +99,38 @@ struct LibraryView: View {
             .padding(.horizontal, 14)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusField))
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusField).stroke(Theme.line, lineWidth: 1))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Scope.allCases) { s in
+                        let selected = s == scope
+                        Button { scope = s } label: {
+                            Text(s.rawValue)
+                                .font(.troveMono(12, selected ? .medium : .regular))
+                                .foregroundStyle(selected ? .white : Theme.ink2)
+                                .padding(.vertical, 7).padding(.horizontal, 14)
+                                .background(selected ? Theme.accent : Theme.surface, in: Capsule())
+                                .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .padding(.bottom, 4)
     }
 
-    private func filter(_ entities: [Entity]) -> [Entity] {
+    private func visible(_ entities: [Entity]) -> [Entity] {
+        var list: [Entity]
+        switch scope {
+        case .all: list = entities.filter { !$0.isArchived }
+        case .people: list = entities.filter { !$0.isArchived && $0.isPerson }
+        case .topics: list = entities.filter { !$0.isArchived && !$0.isPerson }
+        case .archived: list = entities.filter { $0.isArchived }
+        }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return entities }
-        return entities.filter { $0.name.lowercased().contains(q) }
+        if !q.isEmpty { list = list.filter { $0.name.lowercased().contains(q) } }
+        return list
     }
 
     private func load() async {

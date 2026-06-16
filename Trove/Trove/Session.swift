@@ -131,6 +131,21 @@ final class Session {
         dataVersion += 1
     }
 
+    func deleteEntity(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(id)", .delete)
+        dataVersion += 1
+    }
+
+    func archiveEntity(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(id)/archive", .post)
+        dataVersion += 1
+    }
+
+    func restoreEntity(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(id)/restore", .post)
+        dataVersion += 1
+    }
+
     /// Raw image bytes for a source (M0/D105 attachments).
     func image(sourceId: Int) async throws -> Data {
         try await api.getData("/api/sources/\(sourceId)/image")
