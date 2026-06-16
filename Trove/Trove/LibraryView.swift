@@ -5,6 +5,7 @@ struct LibraryView: View {
     @State private var state: Loadable<[Entity]> = .idle
     @State private var query = ""
     @State private var showCapture = false
+    @State private var showAsk = false
 
     var body: some View {
         NavigationStack {
@@ -49,6 +50,9 @@ struct LibraryView: View {
         .sheet(isPresented: $showCapture) {
             CaptureView(onIngested: { Task { await load() } })
         }
+        .sheet(isPresented: $showAsk) {
+            AskView()
+        }
     }
 
     private var header: some View {
@@ -58,6 +62,14 @@ struct LibraryView: View {
                     .font(.troveSerif(34))
                     .foregroundStyle(Theme.ink)
                 Spacer()
+                Button { showAsk = true } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                        .frame(width: 40, height: 40)
+                        .background(Theme.surface, in: Circle())
+                        .overlay(Circle().stroke(Theme.line, lineWidth: 1))
+                }
                 Button { showCapture = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))

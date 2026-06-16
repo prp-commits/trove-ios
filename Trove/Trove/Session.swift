@@ -87,6 +87,11 @@ final class Session {
         return try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
     }
 
+    // Ask (M3) — grounded Q&A over the library.
+    func ask(_ question: String) async throws -> AskResponse {
+        try await api.request("/api/ask", .post, body: AskRequest(question: question))
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil

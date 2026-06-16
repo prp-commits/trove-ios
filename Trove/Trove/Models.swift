@@ -124,6 +124,31 @@ struct IngestImage: Encodable, Sendable {
     let title: String?
 }
 
+// MARK: - Ask (M3)
+
+struct AskRequest: Encodable, Sendable {
+    let question: String
+}
+
+struct AskResponse: Decodable, Sendable {
+    let answer: String
+    let unknown: Bool
+    let citations: [AskCitation]
+}
+
+struct AskCitation: Decodable, Identifiable, Sendable {
+    let refType: String?
+    let insightId: Int?
+    let sourceId: Int?
+    let text: String?
+    let geoPlace: String?
+    let entityId: Int?
+    let entityName: String?
+
+    var id: String { "\(refType ?? "insight")-\(insightId ?? sourceId ?? 0)" }
+    var isPhoto: Bool { refType == "image" }
+}
+
 struct IngestResponse: Decodable, Sendable {
     let sourceId: Int?
     let count: Int
