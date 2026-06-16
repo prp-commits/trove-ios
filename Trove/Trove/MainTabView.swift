@@ -8,7 +8,7 @@ struct MainTabView: View {
             LibraryView()
                 .tabItem { Label("Library", systemImage: "square.stack") }
 
-            ComingSoonView(title: "Review", subtitle: "Your nudge deck lands next.")
+            ReviewView()
                 .tabItem { Label("Review", systemImage: "rectangle.portrait.on.rectangle.portrait") }
 
             ComingSoonView(title: "Pulse", subtitle: "Who needs attention, at a glance.")

@@ -92,6 +92,17 @@ final class Session {
         try await api.request("/api/ask", .post, body: AskRequest(question: question))
     }
 
+    // Review deck (M4)
+    func loadDeck(n: Int = 15) async throws -> [DeckCard] {
+        let res: DeckResponse = try await api.request("/api/review/deck?n=\(n)")
+        return res.cards
+    }
+
+    func swipe(entityId: Int, direction: String, nudgeKind: String?, eventType: String?) async {
+        let body = SwipeRequest(entityId: entityId, direction: direction, nudgeKind: nudgeKind, eventType: eventType)
+        _ = try? await api.request("/api/review/swipe", .post, body: body) as OKResponse
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil

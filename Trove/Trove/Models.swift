@@ -124,6 +124,71 @@ struct IngestImage: Encodable, Sendable {
     let title: String?
 }
 
+// MARK: - Review deck (M4)
+
+struct DeckResponse: Decodable, Sendable {
+    let cards: [DeckCard]
+}
+
+/// A deck card is either a normal nudge (no `type`) or a topic card (`type` set).
+enum DeckCard: Decodable, Sendable {
+    case nudge(NudgeCard)
+    case other(OtherCard)
+
+    private enum TypeKey: String, CodingKey { case type }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: TypeKey.self)
+        let type = try c.decodeIfPresent(String.self, forKey: .type)
+        if let type, ["connection", "resurface", "reflection"].contains(type) {
+            self = .other(try OtherCard(from: decoder))
+        } else {
+            self = .nudge(try NudgeCard(from: decoder))
+        }
+    }
+}
+
+struct EntityRef: Decodable, Sendable {
+    let id: Int
+    let name: String
+    let type: String
+    var isPerson: Bool { type == "person" }
+}
+
+struct NudgeCard: Decodable, Sendable {
+    let entity: EntityRef
+    let insights: [Insight]
+    let pill: Pill
+
+    struct Pill: Decodable, Sendable {
+        let text: String
+        let kind: String?          // upcoming_event | reconnect | suggestion
+        let eventType: String?
+        let eventDate: String?
+        let daysUntil: Int?
+        let daysSince: Int?
+    }
+}
+
+/// Topic cards (connection / resurface / reflection) — decoded loosely so the
+/// deck never breaks. Full per-type actions come in a follow-up; for now these
+/// render their content and advance.
+struct OtherCard: Decodable, Sendable {
+    let type: String
+    let entity: EntityRef?
+    let recap: String?
+    let prompt: String?
+    let relationship: String?
+    let insights: [Insight]?
+}
+
+struct SwipeRequest: Encodable, Sendable {
+    let entityId: Int
+    let direction: String       // left | right
+    let nudgeKind: String?
+    let eventType: String?
+}
+
 // MARK: - Ask (M3)
 
 struct AskRequest: Encodable, Sendable {

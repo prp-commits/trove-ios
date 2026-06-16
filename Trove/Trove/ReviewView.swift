@@ -1,0 +1,211 @@
+import SwiftUI
+
+struct ReviewView: View {
+    @Environment(Session.self) private var session
+    @State private var state: Loadable<[Item]> = .idle
+    @State private var drag: CGSize = .zero
+
+    struct Item: Identifiable { let id = UUID(); let card: DeckCard }
+
+    var body: some View {
+        ZStack {
+            Theme.bg.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Review").font(.troveSerif(34)).foregroundStyle(Theme.ink)
+                Text("The people and topics worth your attention right now.")
+                    .font(.troveMono(12)).foregroundStyle(Theme.muted)
+
+                switch state {
+                case .idle, .loading:
+                    centered { ProgressView().tint(Theme.ink) }
+                case .failed(let message):
+                    centered { MessageBlock(title: "Couldn't load your deck", detail: message) { Task { await load() } } }
+                case .loaded(let items):
+                    if items.isEmpty {
+                        centered {
+                            VStack(spacing: 8) {
+                                Text("You're all caught up ✦").font(.troveSerif(22)).foregroundStyle(Theme.ink)
+                                Text("New nudges appear as your notes age and dates approach.")
+                                    .font(.troveMono(12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                            }
+                        }
+                    } else {
+                        deck(items)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+        }
+        .task { if case .idle = state { await load() } }
+    }
+
+    private func centered<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        VStack { Spacer(minLength: 40); content(); Spacer() }
+            .frame(maxWidth: .infinity)
+    }
+
+    // MARK: deck
+
+    private func deck(_ items: [Item]) -> some View {
+        VStack(spacing: 18) {
+            ZStack {
+                // Next card peeking behind the top one.
+                ForEach(Array(items.prefix(2).enumerated()).reversed(), id: \.element.id) { idx, item in
+                    cardView(item.card)
+                        .scaleEffect(idx == 0 ? 1 : 0.96)
+                        .offset(y: idx == 0 ? 0 : 10)
+                        .offset(x: idx == 0 ? drag.width : 0)
+                        .rotationEffect(.degrees(idx == 0 ? Double(drag.width / 22) : 0))
+                        .opacity(idx == 0 ? 1 : 0.6)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: drag)
+                        .gesture(swipeGesture(item))
+                        .allowsHitTesting(idx == 0)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            HStack(spacing: 14) {
+                Button { resolve(items[0], "left") } label: { actionLabel("Skip", system: "xmark") }
+                    .buttonStyle(PillButtonStyle(filled: false))
+                Button { resolve(items[0], "right") } label: { actionLabel("Keep", system: "checkmark") }
+                    .buttonStyle(PillButtonStyle(filled: true))
+            }
+            .padding(.bottom, 8)
+        }
+        .padding(.top, 12)
+    }
+
+    private func actionLabel(_ text: String, system: String) -> some View {
+        HStack(spacing: 6) { Image(systemName: system); Text(text) }
+    }
+
+    private func swipeGesture(_ item: Item) -> some Gesture {
+        DragGesture()
+            .onChanged { drag = $0.translation }
+            .onEnded { value in
+                if abs(value.translation.width) > 120 {
+                    resolve(item, value.translation.width > 0 ? "right" : "left")
+                } else {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drag = .zero }
+                }
+            }
+    }
+
+    // MARK: card content
+
+    @ViewBuilder
+    private func cardView(_ card: DeckCard) -> some View {
+        switch card {
+        case .nudge(let n): nudgeCard(n)
+        case .other(let o): otherCard(o)
+        }
+    }
+
+    private func nudgeCard(_ n: NudgeCard) -> some View {
+        let label = NudgeStyle.label(kind: n.pill.kind, eventType: n.pill.eventType)
+        let color = NudgeStyle.color(kind: n.pill.kind, eventType: n.pill.eventType)
+        let timing = NudgeStyle.timing(daysUntil: n.pill.daysUntil, daysSince: n.pill.daysSince)
+        return cardShell {
+            HStack(spacing: 8) {
+                Text(label.uppercased())
+                    .font(.troveMono(10, .medium)).tracking(0.5)
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 4).padding(.horizontal, 9)
+                    .background(color, in: Capsule())
+                if let timing {
+                    Text(timing).font(.troveMono(11)).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+            }
+            Text(n.pill.text)
+                .font(.troveSerif(22))
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                TypeChip(isPerson: n.entity.isPerson)
+                Text(n.entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
+            }
+            if !n.insights.isEmpty {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                ForEach(n.insights.prefix(3)) { ins in
+                    Text("• \(ins.text)")
+                        .font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func otherCard(_ o: OtherCard) -> some View {
+        cardShell {
+            Text(o.type.capitalized.uppercased())
+                .font(.troveMono(10, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
+            Text(o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes")
+                .font(.troveSerif(21)).foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let entity = o.entity {
+                HStack(spacing: 6) {
+                    TypeChip(isPerson: entity.isPerson)
+                    Text(entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
+                }
+            }
+            if let insights = o.insights, !insights.isEmpty {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                ForEach(insights.prefix(3)) { ins in
+                    Text("• \(ins.text)").font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func cardShell<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+    }
+
+    // MARK: actions
+
+    private func resolve(_ item: Item, _ direction: String) {
+        // Fire-and-forget the server signal where the card has an entity.
+        Task {
+            switch item.card {
+            case .nudge(let n):
+                await session.swipe(entityId: n.entity.id, direction: direction,
+                                    nudgeKind: n.pill.kind, eventType: n.pill.eventType)
+            case .other(let o):
+                if let entity = o.entity {
+                    await session.swipe(entityId: entity.id, direction: direction,
+                                        nudgeKind: o.type, eventType: nil)
+                }
+            }
+        }
+        // Pop the top card.
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            if case .loaded(var items) = state, !items.isEmpty {
+                items.removeFirst()
+                state = .loaded(items)
+            }
+            drag = .zero
+        }
+    }
+
+    private func load() async {
+        state = .loading
+        do {
+            let cards = try await session.loadDeck()
+            state = .loaded(cards.map { Item(card: $0) })
+        } catch {
+            state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+}
