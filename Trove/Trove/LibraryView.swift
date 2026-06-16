@@ -4,6 +4,7 @@ struct LibraryView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[Entity]> = .idle
     @State private var query = ""
+    @State private var showCapture = false
 
     var body: some View {
         NavigationStack {
@@ -45,14 +46,27 @@ struct LibraryView: View {
         }
         .task { if case .idle = state { await load() } }
         .refreshable { await load() }
+        .sheet(isPresented: $showCapture) {
+            CaptureView(onIngested: { Task { await load() } })
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Library")
-                .font(.troveSerif(34))
-                .foregroundStyle(Theme.ink)
-                .padding(.top, 8)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Library")
+                    .font(.troveSerif(34))
+                    .foregroundStyle(Theme.ink)
+                Spacer()
+                Button { showCapture = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Theme.accent, in: Circle())
+                }
+            }
+            .padding(.top, 8)
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.muted).font(.system(size: 14))

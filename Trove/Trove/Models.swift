@@ -41,19 +41,27 @@ struct SignInRequest: Encodable, Sendable {
     let password: String
 }
 
+// /auth/* bodies are snake_case — map explicitly (no global encode strategy).
 struct SignUpRequest: Encodable, Sendable {
     let email: String
     let password: String
-    let firstName: String   // → first_name
-    let lastName: String    // → last_name
+    let firstName: String
+    let lastName: String
+    enum CodingKeys: String, CodingKey {
+        case email, password
+        case firstName = "first_name"
+        case lastName = "last_name"
+    }
 }
 
 struct RefreshRequest: Encodable, Sendable {
     let refreshToken: String
+    enum CodingKeys: String, CodingKey { case refreshToken = "refresh_token" }
 }
 
 struct LogoutRequest: Encodable, Sendable {
     let refreshToken: String
+    enum CodingKeys: String, CodingKey { case refreshToken = "refresh_token" }
 }
 
 // MARK: - Library (M1)
@@ -93,5 +101,45 @@ struct Insight: Decodable, Identifiable, Sendable {
     let hasImage: Int?   // SQLite returns 1/0, not a JSON bool
 
     var hasPhoto: Bool { (hasImage ?? 0) == 1 }
+}
+
+// MARK: - Capture / ingest (M2)
+// /api/ingest bodies are camelCase — property names match the keys exactly.
+
+struct IngestText: Encodable, Sendable {
+    let kind = "text"
+    let text: String
+    let title: String?
+}
+
+struct IngestURL: Encodable, Sendable {
+    let kind = "url"
+    let url: String
+}
+
+struct IngestImage: Encodable, Sendable {
+    let kind = "image"
+    let imageBase64: String
+    let imageMediaType: String
+    let title: String?
+}
+
+struct IngestResponse: Decodable, Sendable {
+    let sourceId: Int?
+    let count: Int
+    let insights: [IngestedInsight]
+    // (server also returns `primaryEntity` {name,type} and `ambiguous[]`; unused here)
+
+    struct IngestedInsight: Decodable, Identifiable, Sendable {
+        let id: Int
+        let text: String
+        let entity: Ref
+        struct Ref: Decodable, Sendable {
+            let id: Int
+            let name: String
+            let type: String
+            let created: Bool?
+        }
+    }
 }
 

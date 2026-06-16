@@ -38,9 +38,14 @@ actor APIClient {
         self.tokenStore = tokenStore
         self.session = session
         decoder = JSONDecoder()
+        // Responses are uniformly decodable this way: snake_case keys convert to
+        // camelCase, and keys already camelCase (e.g. ingest's `sourceId`) are
+        // left unchanged. So one strategy covers every endpoint.
         decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // NO global encode strategy: request bodies are inconsistent across the
+        // API — /auth/* expects snake_case (refresh_token), /api/* expects
+        // camelCase (imageBase64, entityId). Each request struct maps its own keys.
         encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
     }
 
     /// Request with no body.

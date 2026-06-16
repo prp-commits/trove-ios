@@ -72,6 +72,21 @@ final class Session {
         try await api.request("/api/entities/\(id)")
     }
 
+    // Capture (M2) — the AI ingest path.
+    func ingestText(_ text: String, title: String? = nil) async throws -> IngestResponse {
+        let cleanTitle = (title?.isEmpty ?? true) ? nil : title
+        return try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
+    }
+
+    func ingestURL(_ url: String) async throws -> IngestResponse {
+        try await api.request("/api/ingest", .post, body: IngestURL(url: url))
+    }
+
+    func ingestImage(base64: String, mediaType: String = "image/jpeg") async throws -> IngestResponse {
+        let title = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
+        return try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil
