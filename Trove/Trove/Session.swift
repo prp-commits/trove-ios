@@ -164,6 +164,18 @@ final class Session {
         return res.items
     }
 
+    /// "I reached out" — marks an event acted (suppresses it in Pulse + the deck).
+    func actEvent(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/events/\(id)/act", .post)
+        dataVersion += 1
+    }
+
+    /// Confirm an inferred event date so it can drive nudges.
+    func confirmEvent(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/events/\(id)/confirm", .post)
+        dataVersion += 1
+    }
+
     // Review deck (M4)
     func loadDeck(n: Int = 15) async throws -> [DeckCard] {
         let res: DeckResponse = try await api.request("/api/review/deck?n=\(n)")

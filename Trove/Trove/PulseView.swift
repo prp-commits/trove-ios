@@ -107,12 +107,7 @@ struct PulseView: View {
                 if rows.isEmpty {
                     MessageBlock(title: bucket.emptyLine, detail: bucket.job)
                 } else {
-                    ForEach(rows) { item in
-                        NavigationLink(value: PulseTarget(id: item.id, name: item.name)) {
-                            row(item)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    ForEach(rows) { item in rowCard(item) }
                 }
             }
             .padding(.horizontal, 20)
@@ -128,19 +123,48 @@ struct PulseView: View {
 
     private struct PulseTarget: Hashable { let id: Int; let name: String }
 
-    private func row(_ item: PulseItem) -> some View {
+    private func rowCard(_ item: PulseItem) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(item.name).font(.troveSerif(18)).foregroundStyle(Theme.ink)
-                Text(subline(item)).font(.troveMono(11)).foregroundStyle(Theme.muted)
+            NavigationLink(value: PulseTarget(id: item.id, name: item.name)) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.name).font(.troveSerif(18)).foregroundStyle(Theme.ink)
+                    Text(subline(item)).font(.troveMono(11)).foregroundStyle(Theme.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+            .buttonStyle(.plain)
+            actionButton(item)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func actionButton(_ item: PulseItem) -> some View {
+        if item.status == "upcoming", let up = item.upcoming, let eid = up.eventId {
+            if up.unconfirmed == true {
+                compactButton("Confirm") { try? await session.confirmEvent(eid) }
+            } else {
+                compactButton("Reached out") { try? await session.actEvent(eid) }
+            }
+        } else {
+            compactButton("Catch up") { try? await session.logContact(entityId: item.id) }
+        }
+    }
+
+    private func compactButton(_ title: String, _ action: @escaping () async -> Void) -> some View {
+        Button { Task { await action() } } label: {
+            Text(title)
+                .font(.troveMono(11, .medium))
+                .foregroundStyle(Theme.ink)
+                .padding(.vertical, 7).padding(.horizontal, 12)
+                .background(Theme.bg, in: Capsule())
+                .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: derive
