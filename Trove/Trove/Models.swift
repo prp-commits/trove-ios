@@ -212,6 +212,11 @@ struct OtherCard: Decodable, Sendable {
     let insights: [Insight]?
 }
 
+struct AddInsightRequest: Encodable, Sendable {
+    let entityId: Int
+    let text: String
+}
+
 struct SwipeRequest: Encodable, Sendable {
     let entityId: Int
     let direction: String       // left | right

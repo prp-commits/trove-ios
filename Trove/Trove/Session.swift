@@ -92,6 +92,25 @@ final class Session {
         try await api.request("/api/ask", .post, body: AskRequest(question: question))
     }
 
+    // Entity detail actions
+    func addInsight(entityId: Int, text: String) async throws {
+        let _: OKResponse = try await api.request("/api/insights", .post, body: AddInsightRequest(entityId: entityId, text: text))
+    }
+
+    func deleteInsight(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/insights/\(id)", .delete)
+    }
+
+    /// "Log catch-up" (person) / "Mark revisited" (topic) — records a touch.
+    func logContact(entityId: Int) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(entityId)/contact", .post)
+    }
+
+    /// Raw image bytes for a source (M0/D105 attachments).
+    func image(sourceId: Int) async throws -> Data {
+        try await api.getData("/api/sources/\(sourceId)/image")
+    }
+
     // Pulse (M5)
     func loadPulse() async throws -> [PulseItem] {
         let res: HealthResponse = try await api.request("/api/relationships/health")

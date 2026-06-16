@@ -61,6 +61,11 @@ actor APIClient {
         return try decode(data)
     }
 
+    /// Raw authed GET (e.g. image bytes) — same 401→refresh path, no JSON decode.
+    func getData(_ path: String) async throws -> Data {
+        try await send(path: path, method: .get, body: nil, authorized: true, isRetry: false)
+    }
+
     private func decode<T: Decodable>(_ data: Data) throws -> T {
         do { return try decoder.decode(T.self, from: data) }
         catch { throw APIError.decoding(error) }

@@ -5,6 +5,8 @@ struct EntityDetailView: View {
     let entityId: Int
     let name: String
     @State private var state: Loadable<EntityDetail> = .idle
+    @State private var showAdd = false
+    @State private var working = false
 
     var body: some View {
         ScrollView {
@@ -19,11 +21,16 @@ struct EntityDetailView: View {
                     }
                 case .loaded(let detail):
                     header(detail)
+                    actions(detail)
                     if detail.insights.isEmpty {
                         MessageBlock(title: "No insights yet",
                                      detail: "Notes you capture about \(detail.name) will show here.")
                     } else {
-                        ForEach(detail.insights) { InsightRow(insight: $0) }
+                        ForEach(detail.insights) { insight in
+                            InsightRow(insight: insight) { id in
+                                Task { await delete(id) }
+                            }
+                        }
                     }
                 }
             }
@@ -34,6 +41,10 @@ struct EntityDetailView: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .task { if case .idle = state { await load() } }
+        .sheet(isPresented: $showAdd) {
+            CaptureView(onIngested: { Task { await reload() } },
+                        pinnedEntity: (id: entityId, name: name))
+        }
     }
 
     private func header(_ d: EntityDetail) -> some View {
@@ -54,15 +65,51 @@ struct EntityDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func actions(_ d: EntityDetail) -> some View {
+        HStack(spacing: 10) {
+            Button { Task { await catchUp(d.id) } } label: {
+                Label(d.isPerson ? "Log catch-up" : "Mark revisited", systemImage: "checkmark.circle")
+            }
+            .buttonStyle(PillButtonStyle(filled: false))
+
+            Button { showAdd = true } label: {
+                Label("Add insight", systemImage: "plus")
+            }
+            .buttonStyle(PillButtonStyle(filled: true))
+        }
+        .font(.troveMono(13))
+        .disabled(working)
+        .padding(.bottom, 6)
+    }
+
+    // MARK: actions
+
     private func load() async {
         state = .loading
         do { state = .loaded(try await session.loadEntity(entityId)) }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
     }
+
+    private func reload() async {
+        if let detail = try? await session.loadEntity(entityId) { state = .loaded(detail) }
+    }
+
+    private func catchUp(_ id: Int) async {
+        working = true
+        try? await session.logContact(entityId: id)
+        await reload()
+        working = false
+    }
+
+    private func delete(_ id: Int) async {
+        try? await session.deleteInsight(id)
+        await reload()
+    }
 }
 
 private struct InsightRow: View {
     let insight: Insight
+    var onDelete: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -70,22 +117,26 @@ private struct InsightRow: View {
                 .font(.troveMono(13))
                 .foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                if insight.hasPhoto {
-                    Image(systemName: "photo").font(.system(size: 10)).foregroundStyle(Theme.muted)
-                }
-                Text(metaLine).font(.troveMono(10)).foregroundStyle(Theme.muted)
+            if insight.hasPhoto, let sid = insight.sourceId {
+                RemoteImage(sourceId: sid)
             }
+            Text(metaLine).font(.troveMono(10)).foregroundStyle(Theme.muted)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+        .contextMenu {
+            Button(role: .destructive) { onDelete(insight.id) } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 
     private var metaLine: String {
-        let parts = [insight.sourceKind?.capitalized, DateUtils.friendly(insight.createdAt)]
+        [insight.sourceKind?.capitalized, DateUtils.friendly(insight.createdAt)]
             .compactMap { $0 }
-        return parts.joined(separator: " · ")
+            .joined(separator: " · ")
     }
 }
+

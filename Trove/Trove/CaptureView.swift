@@ -7,13 +7,16 @@ struct CaptureView: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
     var onIngested: () -> Void
+    /// When set, a Note is pinned verbatim to this entity (manual add). Photo/Link
+    /// still go through AI extraction and file by content.
+    var pinnedEntity: (id: Int, name: String)? = nil
 
     enum Mode: String, CaseIterable, Identifiable {
         case text = "Note", photo = "Photo", link = "Link"
         var id: String { rawValue }
     }
     enum Phase {
-        case input, working, done(IngestResponse), error(String)
+        case input, working, done(IngestResponse?), error(String)
     }
 
     @State private var mode: Mode = .text
@@ -66,7 +69,8 @@ struct CaptureView: View {
             case .text:
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("Jot something about a person or topic — Trove files it for you.")
+                        Text(pinnedEntity.map { "One clear fact about \($0.name)." }
+                             ?? "Jot something about a person or topic — Trove files it for you.")
                             .font(.troveMono(14)).foregroundStyle(Theme.muted)
                             .padding(.top, 14).padding(.horizontal, 12)
                     }
@@ -139,7 +143,24 @@ struct CaptureView: View {
 
     // MARK: result
 
-    private func result(_ res: IngestResponse) -> some View {
+    @ViewBuilder
+    private func result(_ res: IngestResponse?) -> some View {
+        if let res {
+            resultList(res)
+        } else {
+            // Manual note pinned to an entity — no extraction list.
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Saved").font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                Text("Added to \(pinnedEntity?.name ?? "Trove").")
+                    .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                Button("Done") { dismiss() }.buttonStyle(PillButtonStyle(filled: true)).padding(.top, 4)
+                Button("Add another") { reset() }
+                    .font(.troveMono(13)).foregroundStyle(Theme.ink2).frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func resultList(_ res: IngestResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(res.count == 0 ? "Nothing to save" : "Saved \(res.count) insight\(res.count == 1 ? "" : "s")")
                 .font(.troveSerif(24)).foregroundStyle(Theme.ink)
@@ -176,6 +197,13 @@ struct CaptureView: View {
     private func submit() async {
         phase = .working
         do {
+            // A Note pinned to an entity is a verbatim manual add (no AI, no re-filing).
+            if mode == .text, let pinned = pinnedEntity {
+                try await session.addInsight(entityId: pinned.id, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+                onIngested()
+                phase = .done(nil)
+                return
+            }
             let res: IngestResponse
             switch mode {
             case .text:
