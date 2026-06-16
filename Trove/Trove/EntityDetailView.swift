@@ -9,6 +9,7 @@ struct EntityDetailView: View {
     @State private var showAdd = false
     @State private var working = false
     @State private var showDelete = false
+    @State private var showMerge = false
 
     // Last-insight delete → cascades to the entity, so confirm.
     @State private var pendingInsightDelete: Insight?
@@ -22,6 +23,11 @@ struct EntityDetailView: View {
     private var insightCount: Int {
         if case .loaded(let d) = state { return d.insights.count }
         return 0
+    }
+
+    private var isPersonNow: Bool {
+        if case .loaded(let d) = state { return d.isPerson }
+        return true
     }
 
     // Rename
@@ -75,6 +81,9 @@ struct EntityDetailView: View {
                     Button { renameDraft = titleName; showRename = true } label: {
                         Label("Rename", systemImage: "pencil")
                     }
+                    Button { showMerge = true } label: {
+                        Label("Merge into…", systemImage: "arrow.triangle.merge")
+                    }
                     if isArchivedNow {
                         Button { Task { await restore() } } label: {
                             Label("Restore", systemImage: "tray.and.arrow.up")
@@ -102,6 +111,10 @@ struct EntityDetailView: View {
             TextEditSheet(title: "Edit insight", initial: insight.text) { newText in
                 await edit(insight.id, newText)
             }
+        }
+        .sheet(isPresented: $showMerge) {
+            MergePicker(sourceId: entityId, sourceName: titleName, sourceIsPerson: isPersonNow,
+                        onMerged: { dismiss() })
         }
         .alert("Rename", isPresented: $showRename) {
             TextField("Name", text: $renameDraft)

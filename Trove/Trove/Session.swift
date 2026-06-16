@@ -146,6 +146,13 @@ final class Session {
         dataVersion += 1
     }
 
+    /// Merge `sourceId` INTO `intoId` (source is absorbed, then gone).
+    func mergeEntity(sourceId: Int, intoId: Int) async throws {
+        struct Body: Encodable { let intoId: Int }
+        let _: OKResponse = try await api.request("/api/entities/\(sourceId)/merge", .post, body: Body(intoId: intoId))
+        dataVersion += 1
+    }
+
     /// Raw image bytes for a source (M0/D105 attachments).
     func image(sourceId: Int) async throws -> Data {
         try await api.getData("/api/sources/\(sourceId)/image")
