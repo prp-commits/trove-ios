@@ -20,6 +20,11 @@ final class Session {
     /// screens can reload — keeps the Library in sync with detail-screen edits.
     private(set) var dataVersion = 0
 
+    /// Force list screens to reload — used when a change may have happened
+    /// outside the app (e.g. the Share Extension captured something while we were
+    /// backgrounded), which doesn't go through our write methods.
+    func markDataPossiblyChanged() { dataVersion += 1 }
+
     private let tokens = TokenStore()
     let api: APIClient
 
