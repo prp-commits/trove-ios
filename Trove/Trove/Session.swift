@@ -187,6 +187,14 @@ final class Session {
         _ = try? await api.request("/api/review/swipe", .post, body: body) as OKResponse
     }
 
+    /// Snooze a nudge for 1 / 3 / 7 days (suppresses the entity from the deck).
+    func snooze(entityId: Int, days: Int, nudgeKind: String?, eventType: String?) async {
+        struct Body: Encodable { let entityId: Int; let days: Int; let nudgeKind: String?; let eventType: String? }
+        _ = try? await api.request("/api/review/snooze", .post,
+                                   body: Body(entityId: entityId, days: days, nudgeKind: nudgeKind, eventType: eventType)) as OKResponse
+        dataVersion += 1
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil

@@ -1,9 +1,12 @@
 import SwiftUI
+import MessageUI
 
 struct ReviewView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[Item]> = .idle
     @State private var drag: CGSize = .zero
+    @State private var composing: Item?
+    @State private var showNoMessaging = false
 
     struct Item: Identifiable { let id = UUID(); let card: DeckCard }
 
@@ -52,7 +55,7 @@ struct ReviewView: View {
             ZStack {
                 // Next card peeking behind the top one.
                 ForEach(Array(items.prefix(2).enumerated()).reversed(), id: \.element.id) { idx, item in
-                    cardView(item.card)
+                    cardView(item)
                         .scaleEffect(idx == 0 ? 1 : 0.96)
                         .offset(y: idx == 0 ? 0 : 10)
                         .offset(x: idx == 0 ? drag.width : 0)
@@ -65,15 +68,37 @@ struct ReviewView: View {
             }
             .frame(maxHeight: .infinity)
 
+            // Swipe handles keep/skip (warmth); these are the prominent actions.
             HStack(spacing: 14) {
-                Button { resolve(items[0], "left") } label: { actionLabel("Skip", system: "xmark") }
-                    .buttonStyle(PillButtonStyle(filled: false))
-                Button { resolve(items[0], "right") } label: { actionLabel("Keep", system: "checkmark") }
+                Menu {
+                    Button("Tomorrow") { snooze(items[0], 1) }
+                    Button("In 3 days") { snooze(items[0], 3) }
+                    Button("Next week") { snooze(items[0], 7) }
+                } label: {
+                    actionLabel("Snooze", system: "clock")
+                        .font(.troveMono(15, .medium))
+                        .foregroundStyle(Theme.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14).padding(.horizontal, 22)
+                        .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                }
+                Button { catchUp(items[0]) } label: { actionLabel("Caught up", system: "checkmark.circle") }
                     .buttonStyle(PillButtonStyle(filled: true))
             }
             .padding(.bottom, 8)
         }
         .padding(.top, 12)
+        .sheet(item: $composing) { item in
+            MessageComposer(body: draftMessage(item)) { result in
+                handleMessageResult(item, result)
+            }
+            .ignoresSafeArea()
+        }
+        .alert("Messaging unavailable", isPresented: $showNoMessaging) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This device can't send texts (the Simulator can't). Try on a real device, or use Log catch-up.")
+        }
     }
 
     private func actionLabel(_ text: String, system: String) -> some View {
@@ -95,14 +120,14 @@ struct ReviewView: View {
     // MARK: card content
 
     @ViewBuilder
-    private func cardView(_ card: DeckCard) -> some View {
-        switch card {
-        case .nudge(let n): nudgeCard(n)
+    private func cardView(_ item: Item) -> some View {
+        switch item.card {
+        case .nudge(let n): nudgeCard(n, item: item)
         case .other(let o): otherCard(o)
         }
     }
 
-    private func nudgeCard(_ n: NudgeCard) -> some View {
+    private func nudgeCard(_ n: NudgeCard, item: Item) -> some View {
         let label = NudgeStyle.label(kind: n.pill.kind, eventType: n.pill.eventType)
         let color = NudgeStyle.color(kind: n.pill.kind, eventType: n.pill.eventType)
         let timing = NudgeStyle.timing(daysUntil: n.pill.daysUntil, daysSince: n.pill.daysSince)
@@ -118,16 +143,34 @@ struct ReviewView: View {
                 }
                 Spacer()
             }
-            Text(n.pill.text)
-                .font(.troveSerif(22))
-                .foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
+            // Tap the suggestion → message the person (auto-tracks on send).
+            Button { if n.entity.isPerson { startMessage(item) } } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(n.pill.text)
+                        .font(.troveSerif(22))
+                        .foregroundStyle(Theme.ink)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if n.entity.isPerson {
+                        Label("Tap to message", systemImage: "message")
+                            .font(.troveMono(11, .medium))
+                            .foregroundStyle(color)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!n.entity.isPerson)
+
             HStack(spacing: 6) {
                 TypeChip(isPerson: n.entity.isPerson)
                 Text(n.entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
             }
             if !n.insights.isEmpty {
                 Rectangle().fill(Theme.line).frame(height: 1)
+                // Backend returns these relevance-ordered (most relevant to the
+                // suggestion first), so the "why" leads. (D108)
                 ForEach(n.insights.prefix(3)) { ins in
                     Text("• \(ins.text)")
                         .font(.troveMono(12)).foregroundStyle(Theme.ink2)
@@ -189,7 +232,52 @@ struct ReviewView: View {
                 }
             }
         }
-        // Pop the top card.
+        advance()
+    }
+
+    // MARK: messaging
+
+    private func startMessage(_ item: Item) {
+        if MFMessageComposeViewController.canSendText() {
+            composing = item
+        } else {
+            showNoMessaging = true
+        }
+    }
+
+    /// Starting draft for the text. The pill is phrased as a directive to the
+    /// user, so we open an empty composer for now; an AI-drafted message is a
+    /// natural follow-up (needs a small backend endpoint).
+    private func draftMessage(_ item: Item) -> String { "" }
+
+    /// On a successful send, auto-track the outreach (logs the catch-up, which
+    /// suppresses the nudge) and advance. Cancel/fail just closes the composer.
+    private func handleMessageResult(_ item: Item, _ result: MessageComposeResult) {
+        composing = nil
+        guard result == .sent else { return }
+        if case .nudge(let n) = item.card {
+            Task { try? await session.logContact(entityId: n.entity.id) }
+        }
+        advance()
+    }
+
+    private func catchUp(_ item: Item) {
+        if case .nudge(let n) = item.card {
+            Task { try? await session.logContact(entityId: n.entity.id) }
+        }
+        advance()
+    }
+
+    private func snooze(_ item: Item, _ days: Int) {
+        if case .nudge(let n) = item.card {
+            Task { await session.snooze(entityId: n.entity.id, days: days,
+                                        nudgeKind: n.pill.kind, eventType: n.pill.eventType) }
+        }
+        advance()
+    }
+
+    /// Pop the top card.
+    private func advance() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             if case .loaded(var items) = state, !items.isEmpty {
                 items.removeFirst()
