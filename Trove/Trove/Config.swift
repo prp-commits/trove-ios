@@ -21,5 +21,5 @@ enum Config {
 
     /// Where the in-app "Send feedback" button (M8) addresses mail. Change to
     /// whatever inbox you want beta feedback to land in.
-    static let feedbackEmail = "paramtravel11@gmail.com"
+    static let feedbackEmail = "paramclaudeuse@gmail.com"
 }
