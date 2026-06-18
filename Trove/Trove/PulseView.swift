@@ -4,23 +4,29 @@ struct PulseView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[PulseItem]> = .idle
 
+    // D121: four tiles as one warmth gradient — Upcoming → In sync (warm) →
+    // Drifting (cooling) → Reconnect (gone cold). Splitting the old "Keeping up"
+    // (warm+cooling) gives each tile one honest job: reassurance vs gentle nudge.
     enum Bucket: String, CaseIterable, Hashable {
         case upcoming = "Upcoming"
-        case keepingUp = "Keeping up"
-        case revisit = "Revisit"
+        case inSync = "In sync"
+        case drifting = "Drifting"
+        case reconnect = "Reconnect"
 
         var job: String {
             switch self {
             case .upcoming: return "Moments coming up — show up on time."
-            case .keepingUp: return "Relationships in good rhythm."
-            case .revisit: return "People you haven't connected with in a while."
+            case .inSync: return "In good rhythm — nothing needed."
+            case .drifting: return "Starting to cool — a good moment to reach out."
+            case .reconnect: return "Gone quiet — time to reconnect."
             }
         }
         var emptyLine: String {
             switch self {
             case .upcoming: return "Nothing on the horizon"
-            case .keepingUp: return "Nothing here yet"
-            case .revisit: return "You're all caught up ✦"
+            case .inSync: return "Nothing here yet"
+            case .drifting: return "No one drifting — nice ✦"
+            case .reconnect: return "You're all caught up ✦"
             }
         }
     }
@@ -90,8 +96,9 @@ struct PulseView: View {
     private func tint(_ bucket: Bucket) -> Color {
         switch bucket {
         case .upcoming: return Theme.accentSoft.opacity(0.5)
-        case .keepingUp: return Color(hex: 0xcfe9d8).opacity(0.5)
-        case .revisit: return Theme.surface
+        case .inSync: return Color(hex: 0xcfe9d8).opacity(0.5)   // soft green (healthy)
+        case .drifting: return Color(hex: 0xeaddc0).opacity(0.5) // sand (starting to cool)
+        case .reconnect: return Color(hex: 0xe6cdb4).opacity(0.5) // warm clay (gone quiet)
         }
     }
 
@@ -175,8 +182,9 @@ struct PulseView: View {
     private func filtered(_ bucket: Bucket, _ items: [PulseItem]) -> [PulseItem] {
         switch bucket {
         case .upcoming:  return items.filter { $0.status == "upcoming" }
-        case .keepingUp: return items.filter { $0.status == "warm" || $0.status == "cooling" }
-        case .revisit:   return items.filter { $0.status == "reach_out" }
+        case .inSync:    return items.filter { $0.status == "warm" }
+        case .drifting:  return items.filter { $0.status == "cooling" }
+        case .reconnect: return items.filter { $0.status == "reach_out" }
         }
     }
 
