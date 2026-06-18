@@ -151,7 +151,7 @@ struct PulseView: View {
                 compactButton("Reached out") { try? await session.actEvent(eid) }
             }
         } else {
-            compactButton("Catch up") { try? await session.logContact(entityId: item.id) }
+            compactButton("Caught up") { try? await session.logContact(entityId: item.id) }
         }
     }
 

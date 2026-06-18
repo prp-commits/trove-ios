@@ -38,6 +38,9 @@ struct EntityDetailView: View {
     // Edit insight
     @State private var editing: Insight?
 
+    // Transient confirmation pill (e.g. after "Caught up").
+    @State private var toast: String?
+
     private var titleName: String {
         if case .loaded(let d) = state { return d.name }
         return name
@@ -73,6 +76,19 @@ struct EntityDetailView: View {
             .padding(.bottom, 28)
         }
         .background(Theme.bg)
+        .overlay(alignment: .bottom) {
+            if let toast {
+                Text(toast)
+                    .font(.troveMono(12))
+                    .foregroundStyle(Theme.bg)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Theme.ink, in: Capsule())
+                    .padding(.bottom, 24)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.3), value: toast)
         .navigationTitle(titleName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -167,7 +183,7 @@ struct EntityDetailView: View {
     private func actions(_ d: EntityDetail) -> some View {
         HStack(spacing: 10) {
             Button { Task { await catchUp(d.id) } } label: {
-                Label(d.isPerson ? "Log catch-up" : "Mark revisited", systemImage: "checkmark.circle")
+                Label("Caught up", systemImage: "checkmark.circle")
             }
             .buttonStyle(PillButtonStyle(filled: false))
 
@@ -198,6 +214,16 @@ struct EntityDetailView: View {
         try? await session.logContact(entityId: id)
         await reload()
         working = false
+        flashToast(isPersonNow ? "Caught up with \(titleName)" : "Caught up on \(titleName)")
+    }
+
+    /// Show a transient confirmation pill, then auto-dismiss.
+    private func flashToast(_ message: String) {
+        toast = message
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            await MainActor.run { toast = nil }
+        }
     }
 
     private func requestDelete(_ insight: Insight) {

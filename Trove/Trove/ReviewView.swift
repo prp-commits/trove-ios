@@ -97,7 +97,7 @@ struct ReviewView: View {
         .alert("Messaging unavailable", isPresented: $showNoMessaging) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("This device can't send texts (the Simulator can't). Try on a real device, or use Log catch-up.")
+            Text("This device can't send texts (the Simulator can't). Try on a real device, or use Caught up.")
         }
     }
 
