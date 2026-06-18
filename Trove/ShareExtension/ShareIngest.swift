@@ -1,8 +1,12 @@
 import Foundation
 
 enum ShareConfig {
-    /// Keep in sync with the app's `Config.baseURL`.
+    /// Keep in sync with the app's `Config.baseURL` (same simulator/device split).
+    #if targetEnvironment(simulator)
     static let baseURL = "http://localhost:3100"
+    #else
+    static let baseURL = "https://trove-api-wewx.onrender.com"
+    #endif
 }
 
 /// Minimal ingest client for the Share Extension. Reuses the app's session from
