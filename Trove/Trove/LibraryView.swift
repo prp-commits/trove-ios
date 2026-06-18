@@ -7,6 +7,7 @@ struct LibraryView: View {
     @State private var showCapture = false
     @State private var showAsk = false
     @State private var scope: Scope = .all
+    @FocusState private var searchFocused: Bool
 
     enum Scope: String, CaseIterable, Identifiable {
         case all = "All", people = "People", topics = "Topics", archived = "Archived"
@@ -39,6 +40,8 @@ struct LibraryView: View {
                             ForEach(shown) { entity in
                                 NavigationLink(value: entity) { EntityRow(entity: entity) }
                                     .buttonStyle(.plain)
+                                    // Drop the keyboard when opening a profile.
+                                    .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
                             }
                         }
                     }
@@ -47,9 +50,17 @@ struct LibraryView: View {
                 .padding(.bottom, 24)
             }
             .background(Theme.bg)
+            .scrollDismissesKeyboard(.immediately)   // drag the list down → keyboard drops
             .navigationBarHidden(true)
             .navigationDestination(for: Entity.self) { entity in
                 EntityDetailView(entityId: entity.id, name: entity.name)
+            }
+            .toolbar {
+                // Always-available way out of the search field.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { searchFocused = false }
+                }
             }
         }
         .task { if case .idle = state { await load() } }
@@ -94,6 +105,9 @@ struct LibraryView: View {
                     .font(.troveMono(14))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .onSubmit { searchFocused = false }
             }
             .padding(.vertical, 11)
             .padding(.horizontal, 14)
