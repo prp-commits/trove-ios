@@ -38,6 +38,7 @@ final class Session {
         do {
             let me: MeResponse = try await api.request("/auth/me")
             state = .signedIn(me.user)
+            Analytics.identify(userId: me.user.id, provider: me.user.provider)
         } catch {
             state = .signedOut
         }
@@ -69,6 +70,7 @@ final class Session {
         tokens.clear()
         authError = nil
         state = .signedOut
+        Analytics.reset()
     }
 
     // MARK: - Data (M1)
@@ -78,7 +80,9 @@ final class Session {
     }
 
     func loadEntity(_ id: Int) async throws -> EntityDetail {
-        try await api.request("/api/entities/\(id)")
+        let res: EntityDetail = try await api.request("/api/entities/\(id)")
+        Analytics.capture("entity_opened")
+        return res
     }
 
     // Capture (M2) — the AI ingest path.
@@ -86,12 +90,14 @@ final class Session {
         let cleanTitle = (title?.isEmpty ?? true) ? nil : title
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
         dataVersion += 1
+        Analytics.capture("ingest_completed", ["kind": "text", "count": res.count])
         return res
     }
 
     func ingestURL(_ url: String) async throws -> IngestResponse {
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestURL(url: url))
         dataVersion += 1
+        Analytics.capture("ingest_completed", ["kind": "url", "count": res.count])
         return res
     }
 
@@ -99,12 +105,15 @@ final class Session {
         let title = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
         dataVersion += 1
+        Analytics.capture("ingest_completed", ["kind": "image", "count": res.count])
         return res
     }
 
     // Ask (M3) — grounded Q&A over the library.
     func ask(_ question: String) async throws -> AskResponse {
-        try await api.request("/api/ask", .post, body: AskRequest(question: question))
+        let res: AskResponse = try await api.request("/api/ask", .post, body: AskRequest(question: question))
+        Analytics.capture("ask_submitted")
+        return res
     }
 
     // Push / right-time delivery (D115). Register the device + persist this
@@ -199,12 +208,16 @@ final class Session {
     // Review deck (M4)
     func loadDeck(n: Int = 15) async throws -> [DeckCard] {
         let res: DeckResponse = try await api.request("/api/review/deck?n=\(n)")
+        Analytics.capture("deck_viewed", ["count": res.cards.count])
         return res.cards
     }
 
     func swipe(entityId: Int, direction: String, nudgeKind: String?, eventType: String?) async {
         let body = SwipeRequest(entityId: entityId, direction: direction, nudgeKind: nudgeKind, eventType: eventType)
         _ = try? await api.request("/api/review/swipe", .post, body: body) as OKResponse
+        if direction == "right" {
+            Analytics.capture("nudge_acted", ["nudge_kind": nudgeKind ?? "none", "event_type": eventType ?? "none"])
+        }
     }
 
     /// Snooze a nudge for 1 / 3 / 7 days (suppresses the entity from the deck).
@@ -222,6 +235,8 @@ final class Session {
             let auth = try await op()
             tokens.save(access: auth.accessToken, refresh: auth.refreshToken)
             state = .signedIn(auth.user)
+            Analytics.identify(userId: auth.user.id, provider: auth.user.provider)
+            Analytics.capture("signin", ["provider": auth.user.provider ?? "email"])
         } catch {
             authError = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }

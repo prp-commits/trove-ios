@@ -3,6 +3,7 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(Session.self) private var session
     @Environment(NotificationManager.self) private var notifications
+    @Environment(\.openURL) private var openURL
     let user: User
     @State private var testing = false
     @State private var testNote: String?
@@ -51,6 +52,20 @@ struct ProfileView: View {
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
                 .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
 
+                // Feedback (M8) — the highest-signal channel for the beta.
+                VStack(spacing: 10) {
+                    Text("FEEDBACK").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Send feedback") { sendFeedback() }
+                        .buttonStyle(PillButtonStyle(filled: false))
+                    Text("Bugs, ideas, anything that felt off — it comes straight to us.")
+                        .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+
                 Button("Sign out") { Task { await session.signOut() } }
                     .buttonStyle(PillButtonStyle(filled: false))
 
@@ -59,6 +74,17 @@ struct ProfileView: View {
             .padding(.horizontal, 20)
         }
         .background(Theme.bg)
+    }
+
+    private func sendFeedback() {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let subject = "Trove beta feedback"
+        let body = "\n\n—\nApp \(v) (\(b))"   // version only — never any note content
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+        if let url = URL(string: "mailto:\(Config.feedbackEmail)?subject=\(enc(subject))&body=\(enc(body))") {
+            openURL(url)
+        }
     }
 }
 
