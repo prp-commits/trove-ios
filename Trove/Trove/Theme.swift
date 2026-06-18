@@ -57,3 +57,14 @@ struct PillButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+
+/// Dismiss the keyboard from anywhere by resigning the current first responder.
+/// Powers the "Done" key on text-entry screens (works for multi-field forms and
+/// TextEditors, where Return inserts a newline rather than dismissing).
+func hideKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+#endif

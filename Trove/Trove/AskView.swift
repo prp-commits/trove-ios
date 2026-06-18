@@ -44,6 +44,7 @@ struct AskView: View {
                 .padding(20)
             }
             .background(Theme.bg)
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Ask")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: EntityLink.self) { link in
@@ -52,6 +53,10 @@ struct AskView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }.tint(Theme.ink)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focused = false }
                 }
             }
         }

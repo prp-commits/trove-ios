@@ -342,6 +342,7 @@ struct TextEditSheet: View {
                     .padding(20)
             }
             .background(Theme.bg)
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -355,6 +356,10 @@ struct TextEditSheet: View {
                     }
                     .tint(Theme.ink)
                     .disabled(saving || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { hideKeyboard() }
                 }
             }
         }
