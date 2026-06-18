@@ -107,6 +107,21 @@ final class Session {
         try await api.request("/api/ask", .post, body: AskRequest(question: question))
     }
 
+    // Push / right-time delivery (D115). Register the device + persist this
+    // device's timezone (push is server-initiated). Then pull the next nudge.
+    func registerDevice(token: String) async throws {
+        let _: OKResponse = try await api.request(
+            "/api/devices", .post,
+            body: RegisterDeviceRequest(token: token, platform: "ios", timezone: TimeZone.current.identifier)
+        )
+    }
+    func nextNudge() async throws -> NextNudge {
+        try await api.request("/api/notifications/next")
+    }
+    func testNudge() async throws -> NextNudge {
+        try await api.request("/api/notifications/test", .post)
+    }
+
     // Entity detail actions
     func addInsight(entityId: Int, text: String) async throws {
         let _: OKResponse = try await api.request("/api/insights", .post, body: AddInsightRequest(entityId: entityId, text: text))
@@ -130,7 +145,7 @@ final class Session {
         dataVersion += 1
     }
 
-    /// "Log catch-up" (person) / "Mark revisited" (topic) — records a touch.
+    /// "Caught up" (person + topic) — records a touch / resets the decay clock.
     func logContact(entityId: Int) async throws {
         let _: OKResponse = try await api.request("/api/entities/\(entityId)/contact", .post)
         dataVersion += 1

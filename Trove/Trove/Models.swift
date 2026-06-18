@@ -224,6 +224,32 @@ struct AddInsightRequest: Encodable, Sendable {
 struct TextRequest: Encodable, Sendable { let text: String }
 struct NameRequest: Encodable, Sendable { let name: String }
 
+// MARK: - Push / right-time delivery (D115)
+
+struct RegisterDeviceRequest: Encodable, Sendable {
+    let token: String
+    let platform: String
+    let timezone: String
+}
+
+/// `/api/notifications/next` (and `/test`). Decoded via `.convertFromSnakeCase`,
+/// so `deliver_hour` → `deliverHour`, `nudge_ref` → `nudgeRef`, etc.
+struct NextNudge: Decodable, Sendable {
+    let nudge: NudgePayload?
+    let deliverHour: Int?
+    let today: String?
+}
+
+struct NudgePayload: Decodable, Sendable {
+    let nudgeRef: String
+    let nudgeKind: String
+    let eventType: String?
+    let entityId: Int?
+    let entityName: String?
+    let title: String
+    let body: String
+}
+
 struct SwipeRequest: Encodable, Sendable {
     let entityId: Int
     let direction: String       // left | right

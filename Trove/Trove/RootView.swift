@@ -18,11 +18,15 @@ struct RootView: View {
             }
         }
         .environment(session)
+        .environment(NotificationManager.shared)
         .task { await session.bootstrap() }
         .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
             // Returning to the foreground may follow an external capture (Share
             // Extension), which doesn't bump dataVersion — refresh list screens.
-            if phase == .active { session.markDataPossiblyChanged() }
+            session.markDataPossiblyChanged()
+            // Re-decide the day's nudge (D115) when we come back to the app.
+            Task { await NotificationManager.shared.refresh() }
         }
     }
 }
