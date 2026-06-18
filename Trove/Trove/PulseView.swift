@@ -169,17 +169,14 @@ struct PulseView: View {
 
     // MARK: derive
 
+    // Tiles just filter by status; the server (D120) already orders within each
+    // group (upcoming soonest-first, warmth tiles quietest-first), so web + iOS stay
+    // consistent. Filtering preserves the server's order.
     private func filtered(_ bucket: Bucket, _ items: [PulseItem]) -> [PulseItem] {
         switch bucket {
-        case .upcoming:
-            return items.filter { $0.status == "upcoming" }
-                .sorted { ($0.upcoming?.daysUntil ?? 9999) < ($1.upcoming?.daysUntil ?? 9999) }
-        case .keepingUp:
-            return items.filter { $0.status == "warm" || $0.status == "cooling" }
-                .sorted { ($0.daysSince ?? 0) > ($1.daysSince ?? 0) }
-        case .revisit:
-            return items.filter { $0.status == "reach_out" }
-                .sorted { ($0.daysSince ?? 0) > ($1.daysSince ?? 0) }
+        case .upcoming:  return items.filter { $0.status == "upcoming" }
+        case .keepingUp: return items.filter { $0.status == "warm" || $0.status == "cooling" }
+        case .revisit:   return items.filter { $0.status == "reach_out" }
         }
     }
 
