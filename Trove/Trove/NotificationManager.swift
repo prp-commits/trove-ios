@@ -80,12 +80,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         return c
     }
 
-    // Show the banner even when the app is in the foreground (so a test is visible).
+    // Foreground presentation. Include `.list` (not just `.banner`) so a nudge that
+    // fires while the app is open is also kept in Notification Center — otherwise it
+    // shows as a transient banner and vanishes with no trace. `.badge` adds a count.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        [.banner, .list, .sound, .badge]
     }
 
     // Tap → route to Review.
