@@ -26,6 +26,11 @@ struct CaptureView: View {
     @State private var imageData: Data?
     @State private var phase: Phase = .input
 
+    // "Filed it" reveal (#5): the confirmation mark springs in, the landing
+    // cards stagger up so you watch each note settle on its person/topic.
+    @State private var revealed = false
+    @State private var landed = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -154,47 +159,87 @@ struct CaptureView: View {
             resultList(res)
         } else {
             // Manual note pinned to an entity — no extraction list.
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Saved").font(.troveSerif(24)).foregroundStyle(Theme.ink)
-                Text("Added to \(pinnedEntity?.name ?? "Trove").")
-                    .font(.troveMono(12)).foregroundStyle(Theme.muted)
-                Button("Done") { dismiss() }.buttonStyle(PillButtonStyle(filled: true)).padding(.top, 4)
-                Button("Add another") { reset() }
-                    .font(.troveMono(13)).foregroundStyle(Theme.ink2).frame(maxWidth: .infinity)
+            VStack(spacing: 16) {
+                filedHeader(title: "Filed it",
+                            subtitle: "Added to \(pinnedEntity?.name ?? "Trove").")
+                resultButtons
             }
+            .frame(maxWidth: .infinity)
+            .onAppear(perform: playReveal)
         }
     }
 
     private func resultList(_ res: IngestResponse) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(res.count == 0 ? "Nothing to save" : "Saved \(res.count) note\(res.count == 1 ? "" : "s")")
-                .font(.troveSerif(24)).foregroundStyle(Theme.ink)
+        VStack(spacing: 16) {
+            filedHeader(title: res.count == 0 ? "Nothing to save" : "Filed it",
+                        subtitle: res.count == 0
+                            ? "Nothing here to keep."
+                            : "Saved \(res.count) note\(res.count == 1 ? "" : "s") — here's where \(res.count == 1 ? "it" : "they") landed.")
 
-            ForEach(res.insights) { item in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.text).font(.troveMono(13)).foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        TypeChip(isPerson: item.entity.type == "person")
-                        Text(item.entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
-                        if item.entity.created == true {
-                            Text("· new").font(.troveMono(10)).foregroundStyle(Theme.muted)
-                        }
-                    }
+            VStack(spacing: 12) {
+                ForEach(Array(res.insights.enumerated()), id: \.element.id) { index, item in
+                    landingCard(item)
+                        .opacity(landed ? 1 : 0)
+                        .offset(y: landed ? 0 : 10)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8)
+                                    .delay(0.18 + Double(index) * 0.08), value: landed)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
             }
 
+            resultButtons
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear(perform: playReveal)
+    }
+
+    /// The gold confirmation mark + headline shared by both result paths.
+    private func filedHeader(title: String, subtitle: String) -> some View {
+        VStack(spacing: 12) {
+            FiledMark(revealed: revealed)
+            Text(title).font(.troveSerif(24)).foregroundStyle(Theme.ink)
+            Text(subtitle)
+                .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private func landingCard(_ item: IngestResponse.IngestedInsight) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(item.text).font(.troveMono(13)).foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                TypeChip(isPerson: item.entity.type == "person")
+                Text(item.entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
+                if item.entity.created == true {
+                    Text("· new").font(.troveMono(10)).foregroundStyle(Theme.muted)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+    }
+
+    private var resultButtons: some View {
+        VStack(spacing: 4) {
             Button("Done") { dismiss() }
                 .buttonStyle(PillButtonStyle(filled: true))
                 .padding(.top, 4)
             Button("Add another") { reset() }
                 .font(.troveMono(13)).foregroundStyle(Theme.ink2)
                 .frame(maxWidth: .infinity)
+                .padding(.top, 4)
         }
+    }
+
+    private func playReveal() {
+        revealed = false; landed = false
+        withAnimation { revealed = true }
+        landed = true
     }
 
     // MARK: actions
@@ -230,5 +275,25 @@ struct CaptureView: View {
 
     private func reset() {
         text = ""; url = ""; imageData = nil; photoItem = nil; phase = .input
+        revealed = false; landed = false
+    }
+}
+
+/// The "filed it" confirmation mark (#5): a gilt ring + check that springs in
+/// when a capture lands. Brand gold, restrained — one beat of delight, no loop.
+private struct FiledMark: View {
+    let revealed: Bool
+    var body: some View {
+        ZStack {
+            Circle().fill(Theme.gold.opacity(0.14))
+            Circle().stroke(Theme.gold, lineWidth: 1.5)
+            Image(systemName: "checkmark")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(Theme.gold)
+        }
+        .frame(width: 64, height: 64)
+        .scaleEffect(revealed ? 1 : 0.5)
+        .opacity(revealed ? 1 : 0)
+        .animation(.spring(response: 0.45, dampingFraction: 0.6), value: revealed)
     }
 }
