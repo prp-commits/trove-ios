@@ -25,6 +25,7 @@ enum Theme {
     static let accent = Color(hex: 0x242424)      // primary button bg
     static let accentSoft = Color(hex: 0xcfdaf5)  // atmosphere wash
     static let danger = Color(hex: 0x8a1f1f)
+    static let gold = Color(hex: 0xc4a86b)        // the icon's gilt — brand accent (splash/wordmark)
 
     // Spacing + radii (roadmap §6 shape language).
     static let radiusCard: CGFloat = 28

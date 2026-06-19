@@ -10,7 +10,7 @@ struct RootView: View {
             Theme.bg.ignoresSafeArea()
             switch session.state {
             case .loading:
-                ProgressView().tint(Theme.ink)
+                SplashView()
             case .signedOut:
                 SignInView()
             case .signedIn(let user):
