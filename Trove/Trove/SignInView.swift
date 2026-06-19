@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import GoogleSignIn
 
 struct SignInView: View {
     @Environment(Session.self) private var session
@@ -8,6 +10,7 @@ struct SignInView: View {
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var mode: Mode = .signIn
+    @State private var googleEnabled = false   // from /auth/config (Phase B)
 
     enum Mode { case signIn, signUp }
 
@@ -82,6 +85,17 @@ struct SignInView: View {
                 }
                 .padding(.vertical, 4)
 
+                if googleEnabled {
+                    Button { continueWithGoogle() } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "g.circle.fill")
+                            Text("Continue with Google")
+                        }
+                    }
+                    .buttonStyle(PillButtonStyle(filled: false))
+                    .disabled(session.isWorking)
+                }
+
                 Button("Explore the demo") {
                     Task { await session.signInDemo() }
                 }
@@ -99,6 +113,7 @@ struct SignInView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
+        .task { googleEnabled = (await session.authConfig()?.google) ?? false }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -109,6 +124,38 @@ struct SignInView: View {
 
     private var line: some View {
         Rectangle().fill(Theme.line).frame(height: 1)
+    }
+
+    /// Present the native Google account sheet; on success hand the ID token to the
+    /// backend (Phase B). Cancel is silent; other failures surface a message.
+    @MainActor
+    private func continueWithGoogle() {
+        guard let presenter = Self.rootViewController() else {
+            session.authError = "Couldn't open Google sign-in. Try again."
+            return
+        }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: Config.googleIOSClientID)
+        GIDSignIn.sharedInstance.signIn(withPresenting: presenter) { result, error in
+            if let error = error as NSError?,
+               error.code == GIDSignInError.canceled.rawValue {
+                return   // user backed out — not an error
+            }
+            let idToken = result?.user.idToken?.tokenString
+            Task { @MainActor in
+                guard let idToken else {
+                    session.authError = "Google sign-in didn't complete. Try again."
+                    return
+                }
+                await session.signInGoogle(idToken: idToken)
+            }
+        }
+    }
+
+    private static func rootViewController() -> UIViewController? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: \.isKeyWindow)?.rootViewController
     }
 
     private func field(_ placeholder: String, text: Binding<String>, secure: Bool = false, keyboard: UIKeyboardType = .default) -> some View {

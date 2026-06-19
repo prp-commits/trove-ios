@@ -62,3 +62,8 @@ fastlane/test_output
 Secrets.xcconfig
 *.local.xcconfig
 .env
+
+# Downloaded Google OAuth client plist — the SDK is configured in code
+# (Config.googleIOSClientID) + the URL scheme is in Info.plist, so this file
+# isn't used. (Its values are public, but no need to track it.)
+client_*.apps.googleusercontent.com.plist

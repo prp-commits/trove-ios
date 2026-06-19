@@ -6,12 +6,15 @@
 //
 
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct TroveApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Hand the Google OAuth redirect back to the SignIn SDK (Phase B).
+                .onOpenURL { GIDSignIn.sharedInstance.handle($0) }
                 // Trove's "Monad" palette is a fixed light "paper" theme (Theme.swift
                 // hexes are non-adaptive). Without locking the scheme, a dark-mode
                 // device flips system text (e.g. TextEditor/TextField input) to white

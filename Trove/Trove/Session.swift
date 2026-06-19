@@ -48,6 +48,20 @@ final class Session {
         await authenticate { try await self.api.request("/auth/demo", .post) }
     }
 
+    /// Which providers the backend has configured (public, pre-auth). Drives whether
+    /// the sign-in screen shows "Continue with Google" (Phase B).
+    func authConfig() async -> AuthConfig? {
+        try? await api.request("/auth/config")
+    }
+
+    /// Native Google Sign-In (Phase B): the SDK gives us a Google ID token; the
+    /// backend verifies it and returns our own session — same path as email/demo.
+    func signInGoogle(idToken: String) async {
+        await authenticate {
+            try await self.api.request("/auth/google", .post, body: GoogleSignInRequest(credential: idToken))
+        }
+    }
+
     func signIn(email: String, password: String) async {
         await authenticate {
             try await self.api.request("/auth/signin", .post, body: SignInRequest(email: email, password: password))

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		1E3BCCD32FE2577400B40487 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1E3BCCC92FE2577300B40487 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1E3BCCEF2FE5B6A600B40487 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 1E3BCCEE2FE5B6A600B40487 /* GoogleSignIn */; };
+		1E3BCCF12FE5B6A600B40487 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 1E3BCCF02FE5B6A600B40487 /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +65,13 @@
 			);
 			target = 1E3BCCC82FE2577300B40487 /* ShareExtension */;
 		};
+		1E3BCCF32FE5B6CB00B40487 /* Exceptions for "Trove" folder in "Trove" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1EC0B46F2FE1C4E7009EED10 /* Trove */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,6 +85,9 @@
 		};
 		1EC0B4722FE1C4E7009EED10 /* Trove */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1E3BCCF32FE5B6CB00B40487 /* Exceptions for "Trove" folder in "Trove" target */,
+			);
 			path = Trove;
 			sourceTree = "<group>";
 		};
@@ -103,6 +115,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1E3BCCEF2FE5B6A600B40487 /* GoogleSignIn in Frameworks */,
+				1E3BCCF12FE5B6A600B40487 /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -189,6 +203,8 @@
 			);
 			name = Trove;
 			packageProductDependencies = (
+				1E3BCCEE2FE5B6A600B40487 /* GoogleSignIn */,
+				1E3BCCF02FE5B6A600B40487 /* GoogleSignInSwift */,
 			);
 			productName = Trove;
 			productReference = 1EC0B4702FE1C4E7009EED10 /* Trove.app */;
@@ -275,6 +291,9 @@
 			);
 			mainGroup = 1EC0B4672FE1C4E7009EED10;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1E3BCCED2FE5B6A600B40487 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1EC0B4712FE1C4E7009EED10 /* Products */;
 			projectDirPath = "";
@@ -554,6 +573,7 @@
 				DEVELOPMENT_TEAM = 9RW37V5B2T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Trove/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -584,6 +604,7 @@
 				DEVELOPMENT_TEAM = 9RW37V5B2T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Trove/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -723,6 +744,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1E3BCCED2FE5B6A600B40487 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1E3BCCEE2FE5B6A600B40487 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1E3BCCED2FE5B6A600B40487 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		1E3BCCF02FE5B6A600B40487 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1E3BCCED2FE5B6A600B40487 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1EC0B4682FE1C4E7009EED10 /* Project object */;
 }

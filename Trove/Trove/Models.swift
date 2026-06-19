@@ -41,6 +41,16 @@ struct SignInRequest: Encodable, Sendable {
     let password: String
 }
 
+/// `POST /auth/google` — `credential` is the Google ID token from the native SDK.
+struct GoogleSignInRequest: Encodable, Sendable {
+    let credential: String
+}
+
+/// `GET /auth/config` — public; tells the sign-in screen which providers are live.
+struct AuthConfig: Decodable, Sendable {
+    let google: Bool?
+}
+
 // /auth/* bodies are snake_case — map explicitly (no global encode strategy).
 struct SignUpRequest: Encodable, Sendable {
     let email: String

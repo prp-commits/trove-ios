@@ -22,4 +22,10 @@ enum Config {
     /// Where the in-app "Send feedback" button (M8) addresses mail. Change to
     /// whatever inbox you want beta feedback to land in.
     static let feedbackEmail = "paramclaudeuse@gmail.com"
+
+    /// Google Sign-In iOS OAuth client (Phase B). Public by design — it ships in
+    /// every client; the URL scheme (reversed form) is in the target's Info → URL
+    /// Types. The backend verifies the ID token's audience against this id
+    /// (`GOOGLE_IOS_CLIENT_ID` on the server).
+    static let googleIOSClientID = "451038475078-a3va3fucvvi3nanncphree55qqj5llbr.apps.googleusercontent.com"
 }
