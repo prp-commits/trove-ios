@@ -26,8 +26,33 @@ struct FirstRunView: View {
     @State private var revealed = false
     @State private var landed = false
 
-    private let example =
-        "Coffee with Priya today — she just adopted a rescue pup named Biscuit, and her birthday's March 3."
+    /// A rotation of example scraps — each names a person, gives context, and
+    /// carries a rememberable detail (a date, a preference, a milestone, a worry)
+    /// so the user learns by example what's worth capturing. One is chosen at
+    /// random per first-run and used for both the placeholder and the fill.
+    private static let examples: [String] = [
+        "Coffee with Priya today — she just adopted a rescue pup named Biscuit, and her birthday's March 3.",
+        "Dinner with Marcus — he started a new job at a design studio and is nervous about the first week.",
+        "Caught up with Aunt Rosa — her knee surgery is on the 12th and she's a little anxious about it.",
+        "Lunch with Dev — he's training for his first marathon in October and changed up his diet.",
+        "Talked to Mom — she's been taking pottery classes on Thursdays and absolutely loving it.",
+        "Ran into Sofia — she's expecting a baby girl, due around late May.",
+        "Drinks with James — he just moved to Austin and doesn't know many people there yet.",
+        "Chatted with Leah — she's allergic to shellfish, good to remember before the dinner party.",
+        "Call with Grandpa — he loves old western films, especially anything with John Wayne.",
+        "Saw Nina — her thesis defense is next month and she could use some encouragement.",
+        "Brunch with Omar — he's deep into specialty coffee and recommended a roaster downtown.",
+        "Hung out with Tara — her son Eli just started kindergarten and she's a little emotional about it.",
+        "Coffee with Ben — he's switching careers into nursing and just got into a program.",
+        "Talked to Maya — she's planning a trip to Japan in the fall and asked for restaurant tips.",
+        "Dinner with the Patels — their 10-year anniversary is coming up on the 20th.",
+        "Caught up with Chris — he's been carrying his dad's illness and feeling worn down.",
+        "Met Aisha — she just published her first short story and was thrilled about it.",
+        "Saw Grandma — she's been lonely since the move, said calls mean a lot to her.",
+        "Lunch with Theo — he's vegetarian now and into rock climbing on weekends.",
+        "Chatted with Hannah — she got promoted to team lead and is celebrating Friday.",
+    ]
+    @State private var example = FirstRunView.examples.randomElement() ?? FirstRunView.examples[0]
 
     var body: some View {
         ZStack {
@@ -94,7 +119,7 @@ struct FirstRunView: View {
 
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("e.g. Coffee with Priya — she just adopted a rescue pup, Biscuit. Her birthday's March 3.")
+                        Text("e.g. \(example)")
                             .font(.troveMono(14)).foregroundStyle(Theme.muted)
                             .padding(.top, 14).padding(.horizontal, 12)
                     }
