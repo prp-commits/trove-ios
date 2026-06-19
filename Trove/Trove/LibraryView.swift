@@ -208,8 +208,9 @@ struct MessageBlock: View {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(PillButtonStyle(filled: true))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.top, 4)
-                    .frame(maxWidth: 220)
             }
             if let retry {
                 Button("Try again", action: retry)
