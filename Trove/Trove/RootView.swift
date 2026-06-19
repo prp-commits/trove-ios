@@ -3,23 +3,41 @@ import SwiftUI
 /// Routes between loading / signed-out / signed-in. Owns the Session.
 struct RootView: View {
     @State private var session = Session()
+    @State private var minSplashDone = false   // keep the splash up a beat even on a fast bootstrap
     @Environment(\.scenePhase) private var scenePhase
+
+    /// Show the splash while bootstrapping AND until a minimum on-screen time has
+    /// passed, so a warm start doesn't flash it for a split second.
+    private var showSplash: Bool {
+        if case .loading = session.state { return true }
+        return !minSplashDone
+    }
 
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
             switch session.state {
             case .loading:
-                SplashView()
+                Color.clear            // the splash overlay covers this
             case .signedOut:
                 SignInView()
             case .signedIn(let user):
                 MainTabView(user: user)
             }
+
+            if showSplash {
+                SplashView().transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.4), value: showSplash)
         .environment(session)
         .environment(NotificationManager.shared)
         .task { await session.bootstrap() }
+        .task {
+            // Minimum splash dwell (~1.2s): lets the fade-in finish and adds a calm hold.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            minSplashDone = true
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             // Returning to the foreground may follow an external capture (Share
