@@ -44,7 +44,7 @@ struct PulseView: View {
 
                     switch state {
                     case .idle, .loading:
-                        ProgressView().tint(Theme.ink).frame(maxWidth: .infinity).padding(.top, 60)
+                        PulseSkeleton()
                     case .failed(let message):
                         MessageBlock(title: "Couldn't load Pulse", detail: message) { Task { await load() } }
                     case .loaded(let items):

@@ -30,7 +30,7 @@ struct ReviewView: View {
 
                 switch state {
                 case .idle, .loading:
-                    centered { ProgressView().tint(Theme.ink) }
+                    ReviewSkeleton()
                 case .failed(let message):
                     centered { MessageBlock(title: "Couldn't load your deck", detail: message) { Task { await load() } } }
                 case .loaded(let items):

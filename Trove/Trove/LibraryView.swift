@@ -22,8 +22,7 @@ struct LibraryView: View {
 
                     switch state {
                     case .idle, .loading:
-                        ProgressView().tint(Theme.ink)
-                            .frame(maxWidth: .infinity).padding(.top, 60)
+                        LibrarySkeleton()
                     case .failed(let message):
                         MessageBlock(title: "Couldn't load your library", detail: message) {
                             Task { await load() }
@@ -32,7 +31,9 @@ struct LibraryView: View {
                         let shown = visible(entities)
                         if entities.isEmpty {
                             MessageBlock(title: "Start your Trove",
-                                         detail: "Add the people and topics you want to keep close.")
+                                         detail: "Add the people and topics you want to keep close.",
+                                         actionTitle: "Add your first note",
+                                         action: { showCapture = true })
                         } else if shown.isEmpty {
                             MessageBlock(title: scope == .archived ? "Nothing archived" : "No matches",
                                          detail: query.isEmpty ? "Nothing in this view yet." : "Nothing matches “\(query)”.")
@@ -191,17 +192,25 @@ struct TypeChip: View {
     }
 }
 
-/// Reusable empty / error block with an optional retry.
+/// Reusable empty / error block with an optional primary action and/or retry.
 struct MessageBlock: View {
     let title: String
     let detail: String
     var retry: (() -> Void)? = nil
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 10) {
             Text(title).font(.troveSerif(20)).foregroundStyle(Theme.ink)
             Text(detail).font(.troveMono(12)).foregroundStyle(Theme.muted)
                 .multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(PillButtonStyle(filled: true))
+                    .padding(.top, 4)
+                    .frame(maxWidth: 220)
+            }
             if let retry {
                 Button("Try again", action: retry)
                     .buttonStyle(PillButtonStyle(filled: false))
