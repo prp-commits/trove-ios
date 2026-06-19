@@ -219,6 +219,7 @@ struct ReviewView: View {
     // MARK: actions
 
     private func resolve(_ item: Item, _ direction: String) {
+        Haptics.commit()
         // Fire-and-forget the server signal where the card has an entity.
         Task {
             switch item.card {
@@ -262,6 +263,7 @@ struct ReviewView: View {
     }
 
     private func catchUp(_ item: Item) {
+        Haptics.success()
         if case .nudge(let n) = item.card {
             Task { try? await session.logContact(entityId: n.entity.id) }
         }
@@ -269,6 +271,7 @@ struct ReviewView: View {
     }
 
     private func snooze(_ item: Item, _ days: Int) {
+        Haptics.soft()
         if case .nudge(let n) = item.card {
             Task { await session.snooze(entityId: n.entity.id, days: days,
                                         nudgeKind: n.pill.kind, eventType: n.pill.eventType) }

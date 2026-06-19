@@ -206,6 +206,7 @@ struct CaptureView: View {
             if mode == .text, let pinned = pinnedEntity {
                 try await session.addInsight(entityId: pinned.id, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
                 onIngested()
+                Haptics.success()
                 phase = .done(nil)
                 return
             }
@@ -220,6 +221,7 @@ struct CaptureView: View {
                 res = try await session.ingestImage(base64: data.base64EncodedString())
             }
             onIngested()
+            Haptics.success()
             phase = .done(res)
         } catch {
             phase = .error((error as? APIError)?.errorDescription ?? error.localizedDescription)

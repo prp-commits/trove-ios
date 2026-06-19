@@ -153,12 +153,12 @@ struct PulseView: View {
     private func actionButton(_ item: PulseItem) -> some View {
         if item.status == "upcoming", let up = item.upcoming, let eid = up.eventId {
             if up.unconfirmed == true {
-                compactButton("Confirm") { try? await session.confirmEvent(eid) }
+                compactButton("Confirm") { Haptics.success(); try? await session.confirmEvent(eid) }
             } else {
-                compactButton("Reached out") { try? await session.actEvent(eid) }
+                compactButton("Reached out") { Haptics.success(); try? await session.actEvent(eid) }
             }
         } else {
-            compactButton("Caught up") { try? await session.logContact(entityId: item.id) }
+            compactButton("Caught up") { Haptics.success(); try? await session.logContact(entityId: item.id) }
         }
     }
 

@@ -214,6 +214,7 @@ struct EntityDetailView: View {
         try? await session.logContact(entityId: id)
         await reload()
         working = false
+        Haptics.success()
         flashToast(isPersonNow ? "Caught up with \(titleName)" : "Caught up on \(titleName)")
     }
 
