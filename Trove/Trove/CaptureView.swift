@@ -281,7 +281,8 @@ struct CaptureView: View {
 
 /// The "filed it" confirmation mark (#5): a gilt ring + check that springs in
 /// when a capture lands. Brand gold, restrained — one beat of delight, no loop.
-private struct FiledMark: View {
+/// Shared with FirstRunView (#1).
+struct FiledMark: View {
     let revealed: Bool
     var body: some View {
         ZStack {

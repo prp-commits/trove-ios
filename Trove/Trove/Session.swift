@@ -69,6 +69,9 @@ final class Session {
         }
         tokens.clear()
         authError = nil
+        // Re-arm first-run so a different account on this device gets onboarded
+        // (an existing account with data still self-skips via the empty-library check).
+        UserDefaults.standard.set(false, forKey: "hasOnboarded")
         state = .signedOut
         Analytics.reset()
     }
