@@ -29,6 +29,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Current notification authorization status — used to decide whether to show
+    /// the priming screen (only when `.notDetermined`).
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
     /// Ask once for permission, then register the device. Safe to call repeatedly.
     func requestAuthorizationAndRegister() async {
         let center = UNUserNotificationCenter.current()
