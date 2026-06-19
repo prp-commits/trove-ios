@@ -49,6 +49,10 @@ struct ReviewView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
+
+            // Undo floats at the app level so it survives the deck emptying after
+            // the last card is swiped (otherwise it vanishes with the deck view).
+            VStack { Spacer(); undoPill.padding(.bottom, 18) }
         }
         .task { if case .idle = state { await load() } }
     }
@@ -87,7 +91,6 @@ struct ReviewView: View {
                 }
             }
             .frame(maxHeight: .infinity)
-            .overlay(alignment: .bottom) { undoPill }
 
             // Swipe handles keep/skip (warmth); these are the prominent actions.
             HStack(spacing: 14) {
