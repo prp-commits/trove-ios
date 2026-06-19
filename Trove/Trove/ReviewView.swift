@@ -8,7 +8,17 @@ struct ReviewView: View {
     @State private var composing: Item?
     @State private var showNoMessaging = false
 
+    // Undo for the easy-to-misfire swipe (keep/skip is a local learning signal,
+    // so restoring the card is fully honest — no server effect to reverse).
+    @State private var undo: Undoable?
+    @State private var undoTask: Task<Void, Never>?
+
     struct Item: Identifiable { let id = UUID(); let card: DeckCard }
+    struct Undoable { let item: Item; let direction: String }
+
+    // How far a card must travel to commit, and the off-screen exit distance.
+    private let commitThreshold: CGFloat = 120
+    private let flyOff: CGFloat = 700
 
     var body: some View {
         ZStack {
@@ -56,8 +66,18 @@ struct ReviewView: View {
                 // Next card peeking behind the top one.
                 ForEach(Array(items.prefix(2).enumerated()).reversed(), id: \.element.id) { idx, item in
                     cardView(item)
+                        .overlay {
+                            if idx == 0 {
+                                RoundedRectangle(cornerRadius: Theme.radiusCard)
+                                    .stroke(swipeTint, lineWidth: 2)
+                                    .opacity(swipeProgress)
+                            }
+                        }
+                        .overlay(alignment: drag.width > 0 ? .topLeading : .topTrailing) {
+                            if idx == 0 { swipeStamp }
+                        }
                         .scaleEffect(idx == 0 ? 1 : 0.96)
-                        .offset(y: idx == 0 ? 0 : 10)
+                        .offset(y: idx == 0 ? drag.height * 0.3 : 10)
                         .offset(x: idx == 0 ? drag.width : 0)
                         .rotationEffect(.degrees(idx == 0 ? Double(drag.width / 22) : 0))
                         .opacity(idx == 0 ? 1 : 0.6)
@@ -67,6 +87,7 @@ struct ReviewView: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .overlay(alignment: .bottom) { undoPill }
 
             // Swipe handles keep/skip (warmth); these are the prominent actions.
             HStack(spacing: 14) {
@@ -105,11 +126,50 @@ struct ReviewView: View {
         HStack(spacing: 6) { Image(systemName: system); Text(text) }
     }
 
+    // MARK: swipe cue
+
+    /// 0→1 as the top card nears the commit threshold; drives the cue's strength.
+    private var swipeProgress: Double { min(abs(drag.width) / commitThreshold, 1) }
+
+    /// Warm gold = keep (right), calm muted = skip (left). No alarmist red/green.
+    private var swipeTint: Color { drag.width >= 0 ? Theme.gold : Theme.muted }
+
+    @ViewBuilder private var swipeStamp: some View {
+        if abs(drag.width) > 6 {
+            let keep = drag.width > 0
+            Text(keep ? "KEEP" : "SKIP")
+                .font(.troveMono(13, .bold)).tracking(1.5)
+                .foregroundStyle(keep ? Theme.gold : Theme.muted)
+                .padding(.vertical, 6).padding(.horizontal, 12)
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .stroke(keep ? Theme.gold : Theme.muted, lineWidth: 2))
+                .rotationEffect(.degrees(keep ? -10 : 10))
+                .opacity(swipeProgress)
+                .padding(28)
+        }
+    }
+
+    @ViewBuilder private var undoPill: some View {
+        if let undo {
+            Button { undoResolve(undo) } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+                    .font(.troveMono(12, .medium))
+                    .foregroundStyle(Theme.bg)
+                    .padding(.vertical, 8).padding(.horizontal, 16)
+                    .background(Theme.ink, in: Capsule())
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 4)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     private func swipeGesture(_ item: Item) -> some Gesture {
         DragGesture()
             .onChanged { drag = $0.translation }
             .onEnded { value in
-                if abs(value.translation.width) > 120 {
+                if abs(value.translation.width) > commitThreshold {
                     resolve(item, value.translation.width > 0 ? "right" : "left")
                 } else {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drag = .zero }
@@ -220,7 +280,20 @@ struct ReviewView: View {
 
     private func resolve(_ item: Item, _ direction: String) {
         Haptics.commit()
-        // Fire-and-forget the server signal where the card has an entity.
+        sendSwipe(item, direction)
+        // Fly the top card off-screen in the swipe direction, then pop it.
+        drag = CGSize(width: direction == "right" ? flyOff : -flyOff, height: drag.height)
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            await MainActor.run {
+                popTop()
+                offerUndo(item, direction)
+            }
+        }
+    }
+
+    /// Fire-and-forget the keep/skip learning signal where the card has an entity.
+    private func sendSwipe(_ item: Item, _ direction: String) {
         Task {
             switch item.card {
             case .nudge(let n):
@@ -233,7 +306,47 @@ struct ReviewView: View {
                 }
             }
         }
-        advance()
+    }
+
+    /// Remove the flown card and reset the drag without animation (the card is
+    /// already off-screen, so the next card should simply be there).
+    private func popTop() {
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) {
+            if case .loaded(var items) = state, !items.isEmpty {
+                items.removeFirst()
+                state = .loaded(items)
+            }
+            drag = .zero
+        }
+    }
+
+    /// Show a transient Undo for a few seconds after a swipe.
+    private func offerUndo(_ item: Item, _ direction: String) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            undo = Undoable(item: item, direction: direction)
+        }
+        undoTask?.cancel()
+        undoTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled {
+                await MainActor.run { withAnimation { undo = nil } }
+            }
+        }
+    }
+
+    /// Put the card back on top and reverse the learning signal.
+    private func undoResolve(_ u: Undoable) {
+        Haptics.soft()
+        undoTask?.cancel()
+        sendSwipe(u.item, u.direction == "right" ? "left" : "right")
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            if case .loaded(var items) = state {
+                items.insert(u.item, at: 0)
+                state = .loaded(items)
+            }
+            undo = nil
+        }
     }
 
     // MARK: messaging
@@ -279,14 +392,16 @@ struct ReviewView: View {
         advance()
     }
 
-    /// Pop the top card.
+    /// Pop the top card (button-driven actions: caught-up / snooze / message).
     private func advance() {
+        undoTask?.cancel()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             if case .loaded(var items) = state, !items.isEmpty {
                 items.removeFirst()
                 state = .loaded(items)
             }
             drag = .zero
+            undo = nil
         }
     }
 
