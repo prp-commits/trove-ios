@@ -204,7 +204,7 @@ struct PulseView: View {
             }
             return "Coming up"
         case "reach_out": return "Quiet \(item.daysSince ?? 0) days"
-        case "cooling": return "Cooling · \(item.daysSince ?? 0) days"
+        case "cooling": return "Quiet \(item.daysSince ?? 0) days"
         default: return "In touch"
         }
     }

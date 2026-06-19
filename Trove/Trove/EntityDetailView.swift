@@ -61,7 +61,7 @@ struct EntityDetailView: View {
                     header(detail)
                     actions(detail)
                     if detail.insights.isEmpty {
-                        MessageBlock(title: "No insights yet",
+                        MessageBlock(title: "No notes yet",
                                      detail: "Notes you capture about \(detail.name) will show here.")
                     } else {
                         ForEach(detail.insights) { insight in
@@ -124,7 +124,7 @@ struct EntityDetailView: View {
                         pinnedEntity: (id: entityId, name: titleName))
         }
         .sheet(item: $editing) { insight in
-            TextEditSheet(title: "Edit insight", initial: insight.text) { newText in
+            TextEditSheet(title: "Edit note", initial: insight.text) { newText in
                 await edit(insight.id, newText)
             }
         }
@@ -149,16 +149,16 @@ struct EntityDetailView: View {
             Button("Delete", role: .destructive) { Task { await deleteEntity() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the entity and all of its insights.")
+            Text("This removes \(titleName) and everything you've saved here.")
         }
-        .confirmationDialog("Delete the only insight?", isPresented: $showInsightDelete,
+        .confirmationDialog("Delete the only note?", isPresented: $showInsightDelete,
                             titleVisibility: .visible, presenting: pendingInsightDelete) { ins in
-            Button("Delete insight & \(titleName)", role: .destructive) {
+            Button("Delete note & \(titleName)", role: .destructive) {
                 Task { await deleteAndDismiss(ins.id) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("This is \(titleName)'s only insight, so deleting it also removes \(titleName).")
+            Text("This is \(titleName)'s only note, so deleting it also removes \(titleName).")
         }
     }
 
@@ -167,7 +167,7 @@ struct EntityDetailView: View {
             Text(d.name).font(.troveSerif(30)).foregroundStyle(Theme.ink)
             HStack(spacing: 8) {
                 TypeChip(isPerson: d.isPerson)
-                Text("\(d.insights.count) insight\(d.insights.count == 1 ? "" : "s")")
+                Text("\(d.insights.count) note\(d.insights.count == 1 ? "" : "s")")
                     .font(.troveMono(11)).foregroundStyle(Theme.muted)
             }
             if let aliases = d.aliases, !aliases.isEmpty {
@@ -188,7 +188,7 @@ struct EntityDetailView: View {
             .buttonStyle(PillButtonStyle(filled: false))
 
             Button { showAdd = true } label: {
-                Label("Add insight", systemImage: "plus")
+                Label("Add note", systemImage: "plus")
             }
             .buttonStyle(PillButtonStyle(filled: true))
         }
@@ -210,6 +210,7 @@ struct EntityDetailView: View {
     }
 
     private func catchUp(_ id: Int) async {
+        Haptics.success()
         working = true
         try? await session.logContact(entityId: id)
         await reload()

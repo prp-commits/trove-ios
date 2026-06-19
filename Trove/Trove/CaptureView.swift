@@ -167,7 +167,7 @@ struct CaptureView: View {
 
     private func resultList(_ res: IngestResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(res.count == 0 ? "Nothing to save" : "Saved \(res.count) insight\(res.count == 1 ? "" : "s")")
+            Text(res.count == 0 ? "Nothing to save" : "Saved \(res.count) note\(res.count == 1 ? "" : "s")")
                 .font(.troveSerif(24)).foregroundStyle(Theme.ink)
 
             ForEach(res.insights) { item in

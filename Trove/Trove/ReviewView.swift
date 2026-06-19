@@ -28,7 +28,7 @@ struct ReviewView: View {
                         centered {
                             VStack(spacing: 8) {
                                 Text("You're all caught up ✦").font(.troveSerif(22)).foregroundStyle(Theme.ink)
-                                Text("New nudges appear as your notes age and dates approach.")
+                                Text("New nudges arrive as dates approach and friends go quiet.")
                                     .font(.troveMono(12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                             }
                         }

@@ -78,7 +78,7 @@ struct Entity: Decodable, Identifiable, Hashable, Sendable {
     var isArchived: Bool { archivedAt != nil }
     var insightCountText: String {
         let n = insightCount ?? 0
-        return "\(n) insight\(n == 1 ? "" : "s")"
+        return "\(n) note\(n == 1 ? "" : "s")"
     }
 }
 

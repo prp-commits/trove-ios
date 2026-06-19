@@ -22,7 +22,7 @@ struct MergePicker: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    Text("Merge **\(sourceName)** into another \(sourceIsPerson ? "person" : "topic"). Its insights move over and \(sourceName) is removed.")
+                    Text("Merge **\(sourceName)** into another \(sourceIsPerson ? "person" : "topic"). Its notes move over and \(sourceName) is removed.")
                         .font(.troveMono(12)).foregroundStyle(Theme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 4)
@@ -62,7 +62,7 @@ struct MergePicker: View {
                 Button("Merge", role: .destructive) { Task { await merge(into: t) } }
                 Button("Cancel", role: .cancel) {}
             } message: { t in
-                Text("\(sourceName)'s insights move into \(t.name). This can't be undone.")
+                Text("\(sourceName)'s notes move into \(t.name). This can't be undone.")
             }
             .alert("Couldn't merge", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK", role: .cancel) {}
