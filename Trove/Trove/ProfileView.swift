@@ -105,10 +105,17 @@ struct ProfileView: View {
                 return
             }
             let events = CalendarSync.shared.collectEvents()
+            // Contacts are optional — they sharpen attendee names and bring birthdays.
+            var contacts: [DeviceContact] = []
+            if await ContactsReader.shared.requestAccess() {
+                contacts = ContactsReader.shared.collectContacts()
+            }
             do {
-                let s = try await session.syncDeviceCalendar(events: events)
+                let s = try await session.syncDeviceCalendar(events: events, contacts: contacts)
                 let n = s.interactions ?? 0
-                calStatus = "Synced \(events.count) event\(events.count == 1 ? "" : "s") · \(n) check-in\(n == 1 ? "" : "s") logged. Quiet friends will surface in Review and Pulse."
+                let b = s.birthdays ?? 0
+                let bday = b > 0 ? " · \(b) birthday\(b == 1 ? "" : "s") added" : ""
+                calStatus = "Synced \(events.count) event\(events.count == 1 ? "" : "s") · \(n) check-in\(n == 1 ? "" : "s")\(bday). Quiet friends will surface in Review and Pulse."
                 Haptics.success()
             } catch {
                 calStatus = (error as? APIError)?.errorDescription ?? "Sync failed. Try again."

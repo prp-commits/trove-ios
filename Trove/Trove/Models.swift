@@ -104,6 +104,7 @@ struct DeviceSyncSummary: Decodable, Sendable {
     let resolved: Int?
     let held: Int?
     let interactions: Int?
+    let birthdays: Int?
 }
 
 // /auth/* bodies are snake_case — map explicitly (no global encode strategy).
