@@ -3,6 +3,16 @@ import SwiftUI
 struct PulseView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[PulseItem]> = .idle
+    @State private var confirming: ConfirmTarget?
+
+    // An inferred-date event the user is confirming. "this week" has no real anchor,
+    // so confirming opens a date picker (prefilled with the guess) to set the actual
+    // day — not silently rubber-stamp the guess.
+    struct ConfirmTarget: Identifiable {
+        let id: Int          // event id
+        let name: String
+        let date: Date       // prefill
+    }
 
     // D121: four tiles as one warmth gradient — Upcoming → In sync (warm) →
     // Drifting (cooling) → Reconnect (gone cold). Splitting the old "Keeping up"
@@ -126,7 +136,28 @@ struct PulseView: View {
         .navigationDestination(for: PulseTarget.self) { t in
             EntityDetailView(entityId: t.id, name: t.name)
         }
+        .sheet(item: $confirming) { target in
+            ConfirmDateSheet(name: target.name, initial: target.date) { picked in
+                confirming = nil
+                Task { try? await session.confirmEvent(target.id, date: Self.isoDay(picked)) }
+            } onCancel: { confirming = nil }
+        }
     }
+
+    /// Parse a "YYYY-MM-DD" anchor to prefill the picker; fall back to today when the
+    /// date is missing or unparseable (the whole reason we're asking).
+    private func prefillDate(_ iso: String?) -> Date {
+        guard let iso, let d = Self.dayParser.date(from: String(iso.prefix(10))) else { return Date() }
+        return d
+    }
+
+    private static let dayParser: DateFormatter = {
+        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    static func isoDay(_ date: Date) -> String { dayParser.string(from: date) }
 
     private struct PulseTarget: Hashable { let id: Int; let name: String }
 
@@ -153,7 +184,10 @@ struct PulseView: View {
     private func actionButton(_ item: PulseItem) -> some View {
         if item.status == "upcoming", let up = item.upcoming, let eid = up.eventId {
             if up.unconfirmed == true {
-                compactButton("Confirm") { Haptics.success(); try? await session.confirmEvent(eid) }
+                compactButton("Confirm date") {
+                    Haptics.soft()
+                    confirming = ConfirmTarget(id: eid, name: item.name, date: prefillDate(up.eventDate))
+                }
             } else {
                 compactButton("Showed up") { Haptics.success(); try? await session.actEvent(eid) }
             }
@@ -213,5 +247,52 @@ struct PulseView: View {
         state = .loading
         do { state = .loaded(try await session.loadPulse()) }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
+    }
+}
+
+/// Pick the real day for an inferred-date event ("this week" → an actual date).
+/// Confirming sets it as an exact, nudge-eligible date; the date is otherwise just a
+/// guess the model made.
+private struct ConfirmDateSheet: View {
+    let name: String
+    let initial: Date
+    let onConfirm: (Date) -> Void
+    let onCancel: () -> Void
+
+    @State private var date: Date
+
+    init(name: String, initial: Date, onConfirm: @escaping (Date) -> Void, onCancel: @escaping () -> Void) {
+        self.name = name; self.initial = initial; self.onConfirm = onConfirm; self.onCancel = onCancel
+        _date = State(initialValue: initial)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text("When is \(name)'s plan?")
+                    .font(.troveSerif(20)).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                Text("We couldn't pin an exact date — set the day so it nudges you at the right time.")
+                    .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
+                DatePicker("Date", selection: $date, displayedComponents: [.date])
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Theme.gold)
+                Button { onConfirm(date) } label: {
+                    Text("Set date").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: true))
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .background(Theme.bg)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }.foregroundStyle(Theme.muted)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

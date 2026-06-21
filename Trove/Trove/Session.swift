@@ -257,9 +257,16 @@ final class Session {
         dataVersion += 1
     }
 
-    /// Confirm an inferred event date so it can drive nudges.
-    func confirmEvent(_ id: Int) async throws {
-        let _: OKResponse = try await api.request("/api/events/\(id)/confirm", .post)
+    /// Confirm an inferred event date so it can drive nudges. Pass `date`
+    /// ("YYYY-MM-DD") to set the actual day when the inferred anchor was vague
+    /// (e.g. "this week"); omit it to accept the inferred date as-is.
+    func confirmEvent(_ id: Int, date: String? = nil) async throws {
+        if let date {
+            struct Body: Encodable { let date: String }
+            let _: OKResponse = try await api.request("/api/events/\(id)/confirm", .post, body: Body(date: date))
+        } else {
+            let _: OKResponse = try await api.request("/api/events/\(id)/confirm", .post)
+        }
         dataVersion += 1
     }
 
