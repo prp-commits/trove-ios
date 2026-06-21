@@ -315,6 +315,7 @@ struct NudgePayload: Decodable, Sendable {
     let entityName: String?
     let title: String
     let body: String
+    let moreCount: Int?        // D132: other nudges waiting → "+N more in Review" tail
 }
 
 struct SwipeRequest: Encodable, Sendable {

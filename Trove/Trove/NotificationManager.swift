@@ -95,7 +95,13 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private func makeContent(_ n: NudgePayload) -> UNMutableNotificationContent {
         let c = UNMutableNotificationContent()
         c.title = n.title
-        c.body = n.body
+        // One push/day, but if more nudges are waiting, a soft tail points to Review
+        // (still a single notification — never a stack). D132.
+        if let more = n.moreCount, more > 0 {
+            c.body = "\(n.body)\n+\(more) more in Review"
+        } else {
+            c.body = n.body
+        }
         c.sound = .default
         c.threadIdentifier = "trove-nudge"
         c.userInfo = ["nudge_ref": n.nudgeRef, "entity_id": n.entityId ?? 0]
