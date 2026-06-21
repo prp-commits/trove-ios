@@ -243,35 +243,36 @@ struct ReviewView: View {
             }
             // Tap the suggestion → message the person (auto-tracks on send).
             Button { if n.entity.isPerson { startMessage(item) } } label: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(n.pill.text)
-                        .font(.troveSerif(22))
-                        .foregroundStyle(Theme.ink)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if n.entity.isPerson {
-                        Label(link == nil ? "Tap to message" : "Message \(link!.name)",
-                              systemImage: "message")
-                            .font(.troveMono(11, .medium))
-                            .foregroundStyle(color)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Text(n.pill.text)
+                    .font(.troveSerif(22))
+                    .foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!n.entity.isPerson)
 
-            // We can't read who you picked inside the system composer, so the link
-            // is learned only here. Show it on the card and let the user re-link if
-            // it's the wrong contact (e.g. the wrong "Michael").
-            if let link {
-                Button { relink(item) } label: {
-                    Text("Not \(link.name)? Change contact")
-                        .font(.troveMono(11)).foregroundStyle(Theme.muted)
-                        .underline()
+            // One compact line: the contact we'll message + a quiet "Change" to
+            // re-link. (The system composer can't report who you actually texted, so
+            // a wrong auto-match is corrected here, not inside Messages.)
+            if n.entity.isPerson {
+                HStack(spacing: 6) {
+                    Button { startMessage(item) } label: {
+                        Label(link?.name ?? "Tap to message", systemImage: "message")
+                            .font(.troveMono(11, .medium)).foregroundStyle(color)
+                    }
+                    .buttonStyle(.plain)
+                    if link != nil {
+                        Text("·").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                        Button { relink(item) } label: {
+                            Text("Change").font(.troveMono(11)).foregroundStyle(Theme.muted).underline()
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
             }
 
             HStack(spacing: 6) {
