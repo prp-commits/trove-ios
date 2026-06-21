@@ -8,6 +8,11 @@ struct ReviewView: View {
     @State private var sheet: ActiveSheet?
     @State private var showNoMessaging = false
 
+    // The contact each person card will message, resolved once per entity so the
+    // card can show *who* before you tap (a wrong guess is caught up front) and
+    // offer "Change contact". Keyed by entity id.
+    @State private var resolvedLinks: [Int: ContactLink] = [:]
+
     // Messaging surfaces: compose pre-addressed, or pick the contact one time first.
     // Driven by a single sheet so the picker → composer handoff doesn't collide.
     private enum ActiveSheet: Identifiable {
@@ -137,6 +142,7 @@ struct ReviewView: View {
                     ContactPickerView(
                         onPick: { link in
                             ContactLinkStore.save(link, for: n.entity.id)
+                            resolvedLinks[n.entity.id] = link
                             sheet = nil
                             presentCompose(item, [link.phone])
                         },
@@ -222,6 +228,7 @@ struct ReviewView: View {
         let label = NudgeStyle.label(kind: n.pill.kind, eventType: n.pill.eventType)
         let color = NudgeStyle.color(kind: n.pill.kind, eventType: n.pill.eventType)
         let timing = NudgeStyle.timing(daysUntil: n.pill.daysUntil, daysSince: n.pill.daysSince)
+        let link = n.entity.isPerson ? resolvedLinks[n.entity.id] : nil
         return cardShell {
             HStack(spacing: 8) {
                 Text(label.uppercased())
@@ -243,7 +250,8 @@ struct ReviewView: View {
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                     if n.entity.isPerson {
-                        Label("Tap to message", systemImage: "message")
+                        Label(link == nil ? "Tap to message" : "Message \(link!.name)",
+                              systemImage: "message")
                             .font(.troveMono(11, .medium))
                             .foregroundStyle(color)
                     }
@@ -253,6 +261,18 @@ struct ReviewView: View {
             }
             .buttonStyle(.plain)
             .disabled(!n.entity.isPerson)
+
+            // We can't read who you picked inside the system composer, so the link
+            // is learned only here. Show it on the card and let the user re-link if
+            // it's the wrong contact (e.g. the wrong "Michael").
+            if let link {
+                Button { relink(item) } label: {
+                    Text("Not \(link.name)? Change contact")
+                        .font(.troveMono(11)).foregroundStyle(Theme.muted)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack(spacing: 6) {
                 TypeChip(isPerson: n.entity.isPerson)
@@ -270,6 +290,7 @@ struct ReviewView: View {
             }
             Spacer(minLength: 0)
         }
+        .task(id: n.entity.id) { await resolveLink(n) }
     }
 
     private func otherCard(_ o: OtherCard) -> some View {
@@ -390,12 +411,28 @@ struct ReviewView: View {
     private func startMessage(_ item: Item) {
         guard case .nudge(let n) = item.card, n.entity.isPerson else { return }
         guard MFMessageComposeViewController.canSendText() else { showNoMessaging = true; return }
-        if let link = ContactLinkStore.resolve(entityId: n.entity.id, name: n.entity.name) {
+        if let link = resolvedLinks[n.entity.id]
+            ?? ContactLinkStore.resolve(entityId: n.entity.id, name: n.entity.name) {
+            resolvedLinks[n.entity.id] = link
             sheet = .compose(item, [link.phone])
         } else {
             sheet = .pick(item)
         }
     }
+
+    /// Resolve (once) the contact a person card will message, so the card can name
+    /// it before the user taps. Best-effort; a no-match leaves it unresolved (tap →
+    /// picker).
+    private func resolveLink(_ n: NudgeCard) async {
+        guard n.entity.isPerson, resolvedLinks[n.entity.id] == nil else { return }
+        if let link = ContactLinkStore.resolve(entityId: n.entity.id, name: n.entity.name) {
+            resolvedLinks[n.entity.id] = link
+        }
+    }
+
+    /// User says the linked contact is wrong — let them re-pick. The new pick
+    /// replaces the stored link (and the on-card name) and opens the composer.
+    private func relink(_ item: Item) { sheet = .pick(item) }
 
     /// Present the composer after the picker has dismissed. The brief delay lets the
     /// picker sheet finish dismissing so the composer presents cleanly.
