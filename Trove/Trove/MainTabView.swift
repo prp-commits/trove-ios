@@ -4,6 +4,7 @@ struct MainTabView: View {
     let user: User
     @Environment(Session.self) private var session
     @Environment(NotificationManager.self) private var notifications
+    @Environment(\.openURL) private var openURL
     @State private var tab = 0
     @State private var showNudgePriming = false
     @State private var showDeviceSyncPriming = false
@@ -59,10 +60,18 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $showDeviceSyncPriming) {
             DeviceSyncPrimingView(
+                deniedMode: CalendarSync.shared.isDenied,
                 onConnect: {
                     hasPrimedDeviceSync = true
                     showDeviceSyncPriming = false
-                    Task { await DeviceSync.connect(session) }
+                    if CalendarSync.shared.isDenied {
+                        // Can't re-prompt — remember the intent so a return-after-enable
+                        // auto-syncs, and send them to Settings.
+                        UserDefaults.standard.set(true, forKey: DeviceSync.enabledKey)
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    } else {
+                        Task { await DeviceSync.connect(session) }
+                    }
                 },
                 onSkip: {
                     hasPrimedDeviceSync = true
@@ -76,12 +85,12 @@ struct MainTabView: View {
         }
     }
 
-    /// Offer the calendar/contacts primer once, only when never asked (notDetermined)
-    /// and not already enabled. A small delay lets the notification sheet finish
-    /// dismissing before this one presents.
+    /// Offer the calendar/contacts primer once per onboarding, whenever we're not
+    /// already actively connected — including the *denied* case (there we route to
+    /// Settings, since iOS won't let us re-prompt). A small delay lets the
+    /// notification sheet finish dismissing before this one presents.
     private func considerDeviceSyncPriming() {
-        guard !hasPrimedDeviceSync, !DeviceSync.isEnabled,
-              !CalendarSync.shared.isAuthorized, !CalendarSync.shared.isDenied else { return }
+        guard !hasPrimedDeviceSync, !DeviceSync.isConnected else { return }
         Task {
             try? await Task.sleep(for: .milliseconds(450))
             showDeviceSyncPriming = true

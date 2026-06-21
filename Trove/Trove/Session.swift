@@ -83,9 +83,12 @@ final class Session {
         }
         tokens.clear()
         authError = nil
-        // Re-arm first-run so a different account on this device gets onboarded
-        // (an existing account with data still self-skips via the empty-library check).
+        // Re-arm onboarding so a different account on this device gets the full
+        // first-run + priming again (existing-account/already-connected states still
+        // self-skip via their own checks).
         UserDefaults.standard.set(false, forKey: "hasOnboarded")
+        UserDefaults.standard.set(false, forKey: "hasPrimedNudges")
+        UserDefaults.standard.set(false, forKey: "hasPrimedDeviceSync")
         state = .signedOut
         Analytics.reset()
     }

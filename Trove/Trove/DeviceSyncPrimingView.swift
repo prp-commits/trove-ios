@@ -5,6 +5,9 @@ import SwiftUI
 /// before the system dialog, so the value lands first. "Connect" requests access
 /// and does the first sync; "Not now" defers (re-enableable later in Profile).
 struct DeviceSyncPrimingView: View {
+    /// When access was already denied in Settings we can't show the system dialog —
+    /// the action becomes "Open Settings" instead of a prompt.
+    var deniedMode: Bool = false
     var onConnect: () -> Void
     var onSkip: () -> Void
 
@@ -26,13 +29,15 @@ struct DeviceSyncPrimingView: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .padding(.horizontal, 6)
-                Text("Stays private to your account. Your address book never floods your library, and you can unsync anytime.")
+                Text(deniedMode
+                     ? "Calendar & Contacts are currently off for Trove. Turn them on in Settings to connect."
+                     : "Stays private to your account. Your address book never floods your library, and you can unsync anytime.")
                     .font(.troveMono(11))
                     .foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 10)
                 Spacer()
-                Button("Connect") { onConnect() }
+                Button(deniedMode ? "Open Settings" : "Connect") { onConnect() }
                     .buttonStyle(PillButtonStyle(filled: true))
                 Button("Not now") { onSkip() }
                     .font(.troveMono(13))
