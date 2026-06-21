@@ -92,6 +92,10 @@ final class Session {
         // Drop on-device contact links + phone numbers so they never bleed across
         // accounts on a shared device (Phase C, slice 5).
         ContactLinkStore.forget()
+        // Clear this account's scheduled/delivered local notifications so they don't
+        // fire (or linger in Notification Center) under the next account — local
+        // notifications aren't account-scoped in iOS's queue.
+        NotificationManager.shared.clearAll()
         state = .signedOut
         Analytics.reset()
     }
@@ -299,6 +303,10 @@ final class Session {
         do {
             let auth = try await op()
             tokens.save(access: auth.accessToken, refresh: auth.refreshToken)
+            // Clear any notifications left from a prior account before this one's
+            // nudges get scheduled — covers the case where the previous session ended
+            // via token expiry (which bypasses signOut).
+            NotificationManager.shared.clearAll()
             state = .signedIn(auth.user)
             Analytics.identify(userId: auth.user.id, provider: auth.user.provider)
             Analytics.capture("signin", ["provider": auth.user.provider ?? "email"])

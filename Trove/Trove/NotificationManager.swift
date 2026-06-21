@@ -54,6 +54,22 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         schedule(n, hour: res.deliverHour ?? 9)
     }
 
+    /// Clear every scheduled + delivered local notification and reset the badge.
+    /// Local notifications live in iOS's queue, not per-account, so without this a
+    /// previous account's nudges keep firing (or sit in Notification Center) after
+    /// switching users. Called on sign-out.
+    func clearAll() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        pendingDeepLink = nil
+        if #available(iOS 17.0, *) {
+            Task { try? await center.setBadgeCount(0) }
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+    }
+
     /// Profile "Send a test nudge" — fire the next nudge ~now so it's visible.
     func sendTest() async {
         guard let session, let res = try? await session.testNudge(), let n = res.nudge else { return }
