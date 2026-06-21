@@ -238,9 +238,22 @@ final class Session {
         return res.items
     }
 
-    /// "I reached out" — marks an event acted (suppresses it in Pulse + the deck).
+    /// "Showed up" — marks an event acted (suppresses it in Pulse + the deck).
     func actEvent(_ id: Int) async throws {
         let _: OKResponse = try await api.request("/api/events/\(id)/act", .post)
+        dataVersion += 1
+    }
+
+    /// Undo "Showed up" for an event card — clears acted_at so the nudge returns.
+    func unactEvent(_ id: Int) async throws {
+        let _: OKResponse = try await api.request("/api/events/\(id)/unact", .post)
+        dataVersion += 1
+    }
+
+    /// Undo a manual catch-up (the "Showed up" undo on a reconnect card) — removes
+    /// the most recent manual touch so the cold relationship nudge returns.
+    func undoContact(entityId: Int) async throws {
+        let _: OKResponse = try await api.request("/api/entities/\(entityId)/uncontact", .post)
         dataVersion += 1
     }
 

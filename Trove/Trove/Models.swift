@@ -265,6 +265,7 @@ struct NudgeCard: Decodable, Sendable {
         let kind: String?          // upcoming_event | reconnect | suggestion
         let eventType: String?
         let eventDate: String?
+        let eventId: Int?          // D130: in-window event to mark acted on "Showed up"
         let daysUntil: Int?
         let daysSince: Int?
     }

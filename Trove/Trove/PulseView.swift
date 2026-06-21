@@ -155,10 +155,10 @@ struct PulseView: View {
             if up.unconfirmed == true {
                 compactButton("Confirm") { Haptics.success(); try? await session.confirmEvent(eid) }
             } else {
-                compactButton("Reached out") { Haptics.success(); try? await session.actEvent(eid) }
+                compactButton("Showed up") { Haptics.success(); try? await session.actEvent(eid) }
             }
         } else {
-            compactButton("Caught up") { Haptics.success(); try? await session.logContact(entityId: item.id) }
+            compactButton("Showed up") { Haptics.success(); try? await session.logContact(entityId: item.id) }
         }
     }
 

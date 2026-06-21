@@ -32,7 +32,9 @@ struct ReviewView: View {
     @State private var undoTask: Task<Void, Never>?
 
     struct Item: Identifiable { let id = UUID(); let card: DeckCard }
-    struct Undoable { let item: Item; let direction: String }
+    // A reversible action on a card: `revert` undoes the server-side effect; the card
+    // is re-inserted on top. Serves both the keep/skip swipe and "Showed up".
+    struct Undoable { let item: Item; let revert: () -> Void }
 
     // How far a card must travel to commit, and the off-screen exit distance.
     private let commitThreshold: CGFloat = 120
@@ -124,7 +126,7 @@ struct ReviewView: View {
                         .padding(.vertical, 14).padding(.horizontal, 22)
                         .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
                 }
-                Button { catchUp(items[0]) } label: { actionLabel("Caught up", system: "checkmark.circle") }
+                Button { showedUp(items[0]) } label: { actionLabel("Showed up", system: "checkmark.circle") }
                     .buttonStyle(PillButtonStyle(filled: true))
             }
             .padding(.bottom, 8)
@@ -155,7 +157,7 @@ struct ReviewView: View {
         .alert("Messaging unavailable", isPresented: $showNoMessaging) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("This device can't send texts (the Simulator can't). Try on a real device, or use Caught up.")
+            Text("This device can't send texts (the Simulator can't). Try on a real device, or use Showed up.")
         }
     }
 
@@ -188,7 +190,7 @@ struct ReviewView: View {
 
     @ViewBuilder private var undoPill: some View {
         if let undo {
-            Button { undoResolve(undo) } label: {
+            Button { performUndo(undo) } label: {
                 Label("Undo", systemImage: "arrow.uturn.backward")
                     .font(.troveMono(12, .medium))
                     .foregroundStyle(Theme.bg)
@@ -340,7 +342,8 @@ struct ReviewView: View {
             try? await Task.sleep(for: .milliseconds(300))
             await MainActor.run {
                 popTop()
-                offerUndo(item, direction)
+                let reverse = direction == "right" ? "left" : "right"
+                offerUndo(item, revert: { sendSwipe(item, reverse) })
             }
         }
     }
@@ -374,10 +377,10 @@ struct ReviewView: View {
         }
     }
 
-    /// Show a transient Undo for a few seconds after a swipe.
-    private func offerUndo(_ item: Item, _ direction: String) {
+    /// Show a transient Undo for a few seconds after a reversible action.
+    private func offerUndo(_ item: Item, revert: @escaping () -> Void) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            undo = Undoable(item: item, direction: direction)
+            undo = Undoable(item: item, revert: revert)
         }
         undoTask?.cancel()
         undoTask = Task {
@@ -388,11 +391,11 @@ struct ReviewView: View {
         }
     }
 
-    /// Put the card back on top and reverse the learning signal.
-    private func undoResolve(_ u: Undoable) {
+    /// Reverse the action server-side and put the card back on top.
+    private func performUndo(_ u: Undoable) {
         Haptics.soft()
         undoTask?.cancel()
-        sendSwipe(u.item, u.direction == "right" ? "left" : "right")
+        u.revert()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             if case .loaded(var items) = state {
                 items.insert(u.item, at: 0)
@@ -449,23 +452,44 @@ struct ReviewView: View {
     /// natural follow-up (needs a small backend endpoint).
     private func draftMessage(_ item: Item) -> String { "" }
 
-    /// On a successful send, auto-track the outreach (logs the catch-up, which
-    /// suppresses the nudge) and advance. Cancel/fail just closes the composer.
+    /// On a successful send, count it as "Showed up" (same cross-tab effect) and
+    /// advance. Cancel/fail just closes the composer.
     private func handleMessageResult(_ item: Item, _ result: MessageComposeResult) {
         sheet = nil
         guard result == .sent else { return }
-        if case .nudge(let n) = item.card {
-            Task { try? await session.logContact(entityId: n.entity.id) }
-        }
-        advance()
+        showedUp(item)
     }
 
-    private func catchUp(_ item: Item) {
+    /// "Showed up" — the explicit done action, shared with the message-sent path and
+    /// standardized across Pulse + Review. Records the action, pops the card, and
+    /// offers a transient Undo (the action clears the nudge from BOTH tabs, so a
+    /// mis-tap must be reversible).
+    private func showedUp(_ item: Item) {
         Haptics.success()
-        if case .nudge(let n) = item.card {
-            Task { try? await session.logContact(entityId: n.entity.id) }
+        let revert = doShowUp(item)
+        undoTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            if case .loaded(var items) = state, !items.isEmpty {
+                items.removeFirst()
+                state = .loaded(items)
+            }
+            drag = .zero
         }
-        advance()
+        offerUndo(item, revert: revert)
+    }
+
+    /// Record showing up: for an event card, mark the event acted (clears it from
+    /// Pulse AND the deck via `acted_at`); otherwise log a catch-up (resets the decay
+    /// clock). Returns the matching reversal for the Undo pill.
+    private func doShowUp(_ item: Item) -> () -> Void {
+        guard case .nudge(let n) = item.card else { return {} }
+        if let eid = n.pill.eventId {
+            Task { try? await session.actEvent(eid) }
+            return { Task { try? await session.unactEvent(eid) } }
+        } else {
+            Task { try? await session.logContact(entityId: n.entity.id) }
+            return { Task { try? await session.undoContact(entityId: n.entity.id) } }
+        }
     }
 
     private func snooze(_ item: Item, _ days: Int) {
