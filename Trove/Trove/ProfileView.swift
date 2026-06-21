@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ProfileView: View {
     @Environment(Session.self) private var session
@@ -7,8 +8,12 @@ struct ProfileView: View {
     let user: User
     @State private var testing = false
     @State private var testNote: String?
-    @State private var calSyncing = false
+    @State private var calWorking = false
     @State private var calStatus: String?
+    @State private var calAuthorized = false
+    @State private var calDenied = false
+    @AppStorage(DeviceSync.enabledKey) private var deviceSyncEnabled = false
+    @AppStorage(DeviceSync.lastSyncKey) private var lastSyncAt = 0.0
 
     var body: some View {
         ScrollView {
@@ -54,22 +59,11 @@ struct ProfileView: View {
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
                 .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
 
-                // Calendar & Contacts (Phase C) — device sync keeps relationships
-                // warm from whatever calendars live on the phone.
-                VStack(spacing: 10) {
-                    Text("CALENDAR & CONTACTS").font(.troveMono(11)).foregroundStyle(Theme.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button(calSyncing ? "Syncing…" : "Sync device calendar") { syncCalendar() }
-                        .buttonStyle(PillButtonStyle(filled: false))
-                        .disabled(calSyncing)
-                    Text(calStatus ?? "Keep relationships warm using the calendars already on your phone — iCloud, Google, or Exchange. Trove reads who you meet with to notice when someone goes quiet; your address book never floods your Library.")
-                        .font(.troveMono(10)).foregroundStyle(Theme.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+                // Calendar & Contacts (Phase C) — device sync runs silently once
+                // connected; the control here is the state + Unsync.
+                connectionsSection
+
+
 
                 // Feedback (M8) — the highest-signal channel for the beta.
                 VStack(spacing: 10) {
@@ -93,34 +87,90 @@ struct ProfileView: View {
             .padding(.horizontal, 20)
         }
         .background(Theme.bg)
+        .task { refreshCalState() }
     }
 
-    private func syncCalendar() {
-        calSyncing = true; calStatus = nil
+    // MARK: Connections (Phase C) — state-driven; sync is silent, control is Unsync.
+
+    @ViewBuilder private var connectionsSection: some View {
+        VStack(spacing: 10) {
+            Text("CALENDAR & CONTACTS").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if calAuthorized && deviceSyncEnabled {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.gold)
+                    Text("Connected").font(.troveMono(13, .medium)).foregroundStyle(Theme.ink)
+                    Spacer()
+                }
+                Text(lastSyncedLine).font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(calWorking ? "Unsyncing…" : "Unsync") { unsyncCalendar() }
+                    .buttonStyle(PillButtonStyle(filled: false))
+                    .disabled(calWorking)
+                Text("Trove stops syncing and forgets what it built. To fully revoke access, turn it off in Settings.")
+                    .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if calDenied {
+                Text("Calendar access is off. Turn it on in Settings so Trove can notice who's gone quiet and remember birthdays.")
+                    .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                }
+                .buttonStyle(PillButtonStyle(filled: false))
+            } else {
+                Text("Connect the calendars and contacts on your phone — iCloud, Google, or Exchange. Trove notices who you've seen, who's drifting, and whose birthday is near. Your address book never floods your library.")
+                    .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(calWorking ? "Connecting…" : "Connect calendar & contacts") { connectCalendar() }
+                    .buttonStyle(PillButtonStyle(filled: false))
+                    .disabled(calWorking)
+            }
+
+            if let calStatus {
+                Text(calStatus).font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+    }
+
+    private var lastSyncedLine: String {
+        guard lastSyncAt > 0 else { return "Syncing on each app open." }
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .full
+        return "Last synced \(f.localizedString(for: Date(timeIntervalSince1970: lastSyncAt), relativeTo: Date()))."
+    }
+
+    private func refreshCalState() {
+        calAuthorized = CalendarSync.shared.isAuthorized
+        calDenied = CalendarSync.shared.isDenied
+    }
+
+    private func connectCalendar() {
+        calWorking = true; calStatus = nil
         Task {
-            let granted = await CalendarSync.shared.requestAccess()
-            guard granted else {
-                calStatus = "Calendar access is off. Turn it on in Settings › Trove › Calendars (Full Access), then try again."
-                calSyncing = false
-                return
-            }
-            let events = CalendarSync.shared.collectEvents()
-            // Contacts are optional — they sharpen attendee names and bring birthdays.
-            var contacts: [DeviceContact] = []
-            if await ContactsReader.shared.requestAccess() {
-                contacts = ContactsReader.shared.collectContacts()
-            }
-            do {
-                let s = try await session.syncDeviceCalendar(events: events, contacts: contacts)
-                let n = s.interactions ?? 0
-                let b = s.birthdays ?? 0
-                let bday = b > 0 ? " · \(b) birthday\(b == 1 ? "" : "s") added" : ""
-                calStatus = "Synced \(events.count) event\(events.count == 1 ? "" : "s") · \(n) check-in\(n == 1 ? "" : "s")\(bday). Quiet friends will surface in Review and Pulse."
-                Haptics.success()
-            } catch {
-                calStatus = (error as? APIError)?.errorDescription ?? "Sync failed. Try again."
-            }
-            calSyncing = false
+            let granted = await DeviceSync.connect(session)
+            refreshCalState()
+            calStatus = granted
+                ? "Connected — your people will start surfacing in Review and Pulse."
+                : "Calendar access is off. Turn it on in Settings, then come back."
+            calWorking = false
+            if granted { Haptics.success() }
+        }
+    }
+
+    private func unsyncCalendar() {
+        calWorking = true; calStatus = nil
+        Task {
+            await DeviceSync.unsync(session)
+            refreshCalState()
+            calStatus = "Unsynced. Trove stopped syncing and forgot what it built."
+            calWorking = false
+            Haptics.soft()
         }
     }
 

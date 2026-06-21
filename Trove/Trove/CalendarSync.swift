@@ -25,6 +25,12 @@ final class CalendarSync {
         return status == .authorized
     }
 
+    /// Permission was actively refused — we can't re-prompt; only Settings can flip it.
+    var isDenied: Bool {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        return status == .denied || status == .restricted
+    }
+
     /// Prompt for calendar access (the system dialog). Returns whether granted.
     func requestAccess() async -> Bool {
         do {

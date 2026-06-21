@@ -218,6 +218,14 @@ final class Session {
         return res
     }
 
+    /// "Unsync" — forget everything device sync derived (server-side): calendar
+    /// warmth interactions, seen-counts, and contacts-sourced birthdays.
+    func forgetDeviceData() async throws {
+        let _: OKResponse = try await api.request("/api/calendar/device-forget", .post)
+        dataVersion += 1
+        Analytics.capture("device_calendar_forgotten")
+    }
+
     // Pulse (M5)
     func loadPulse() async throws -> [PulseItem] {
         let res: HealthResponse = try await api.request("/api/relationships/health")

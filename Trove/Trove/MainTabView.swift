@@ -6,7 +6,9 @@ struct MainTabView: View {
     @Environment(NotificationManager.self) private var notifications
     @State private var tab = 0
     @State private var showNudgePriming = false
+    @State private var showDeviceSyncPriming = false
     @AppStorage("hasPrimedNudges") private var hasPrimedNudges = false
+    @AppStorage("hasPrimedDeviceSync") private var hasPrimedDeviceSync = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -37,6 +39,7 @@ struct MainTabView: View {
                 showNudgePriming = true
             } else {
                 await notifications.requestAuthorizationAndRegister()
+                considerDeviceSyncPriming()   // nudges already handled → consider calendar
             }
         }
         .sheet(isPresented: $showNudgePriming) {
@@ -45,16 +48,43 @@ struct MainTabView: View {
                     hasPrimedNudges = true
                     showNudgePriming = false
                     Task { await notifications.requestAuthorizationAndRegister() }
+                    considerDeviceSyncPriming()
                 },
                 onSkip: {
                     hasPrimedNudges = true
                     showNudgePriming = false
+                    considerDeviceSyncPriming()
+                }
+            )
+        }
+        .sheet(isPresented: $showDeviceSyncPriming) {
+            DeviceSyncPrimingView(
+                onConnect: {
+                    hasPrimedDeviceSync = true
+                    showDeviceSyncPriming = false
+                    Task { await DeviceSync.connect(session) }
+                },
+                onSkip: {
+                    hasPrimedDeviceSync = true
+                    showDeviceSyncPriming = false
                 }
             )
         }
         // Tapping a nudge notification routes to Review.
         .onChange(of: notifications.pendingDeepLink) { _, ref in
             if ref != nil { tab = 1; notifications.pendingDeepLink = nil }
+        }
+    }
+
+    /// Offer the calendar/contacts primer once, only when never asked (notDetermined)
+    /// and not already enabled. A small delay lets the notification sheet finish
+    /// dismissing before this one presents.
+    private func considerDeviceSyncPriming() {
+        guard !hasPrimedDeviceSync, !DeviceSync.isEnabled,
+              !CalendarSync.shared.isAuthorized, !CalendarSync.shared.isDenied else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            showDeviceSyncPriming = true
         }
     }
 }

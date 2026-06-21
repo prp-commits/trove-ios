@@ -52,6 +52,9 @@ struct RootView: View {
             session.markDataPossiblyChanged()
             // Re-decide the day's nudge (D115) when we come back to the app.
             Task { await NotificationManager.shared.refresh() }
+            // Silent device calendar/contacts sync (Phase C) — throttled, only if
+            // the user connected and access is still granted.
+            Task { await DeviceSync.autoSyncIfDue(session) }
         }
     }
 }
