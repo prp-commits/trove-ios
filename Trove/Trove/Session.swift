@@ -89,6 +89,9 @@ final class Session {
         UserDefaults.standard.set(false, forKey: "hasOnboarded")
         UserDefaults.standard.set(false, forKey: "hasPrimedNudges")
         UserDefaults.standard.set(false, forKey: "hasPrimedDeviceSync")
+        // Drop on-device contact links + phone numbers so they never bleed across
+        // accounts on a shared device (Phase C, slice 5).
+        ContactLinkStore.forget()
         state = .signedOut
         Analytics.reset()
     }

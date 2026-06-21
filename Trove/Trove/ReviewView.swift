@@ -5,8 +5,21 @@ struct ReviewView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[Item]> = .idle
     @State private var drag: CGSize = .zero
-    @State private var composing: Item?
+    @State private var sheet: ActiveSheet?
     @State private var showNoMessaging = false
+
+    // Messaging surfaces: compose pre-addressed, or pick the contact one time first.
+    // Driven by a single sheet so the picker → composer handoff doesn't collide.
+    private enum ActiveSheet: Identifiable {
+        case compose(Item, [String])
+        case pick(Item)
+        var id: String {
+            switch self {
+            case .compose(let i, _): return "compose-\(i.id)"
+            case .pick(let i): return "pick-\(i.id)"
+            }
+        }
+    }
 
     // Undo for the easy-to-misfire swipe (keep/skip is a local learning signal,
     // so restoring the card is fully honest — no server effect to reverse).
@@ -112,11 +125,26 @@ struct ReviewView: View {
             .padding(.bottom, 8)
         }
         .padding(.top, 12)
-        .sheet(item: $composing) { item in
-            MessageComposer(body: draftMessage(item)) { result in
-                handleMessageResult(item, result)
+        .sheet(item: $sheet) { active in
+            switch active {
+            case .compose(let item, let recipients):
+                MessageComposer(body: draftMessage(item), recipients: recipients) { result in
+                    handleMessageResult(item, result)
+                }
+                .ignoresSafeArea()
+            case .pick(let item):
+                if case .nudge(let n) = item.card {
+                    ContactPickerView(
+                        onPick: { link in
+                            ContactLinkStore.save(link, for: n.entity.id)
+                            sheet = nil
+                            presentCompose(item, [link.phone])
+                        },
+                        onCancel: { sheet = nil }
+                    )
+                    .ignoresSafeArea()
+                }
             }
-            .ignoresSafeArea()
         }
         .alert("Messaging unavailable", isPresented: $showNoMessaging) {
             Button("OK", role: .cancel) {}
@@ -354,11 +382,27 @@ struct ReviewView: View {
 
     // MARK: messaging
 
+    /// Tap-to-message (Phase C, slice 5). Resolve a number for this person — a
+    /// previously learned link or a confident contact auto-match — and pre-address
+    /// the composer. If we can't, show the one-time contact picker first; the pick is
+    /// stored on-device so the next message to them is pre-addressed. Phone numbers
+    /// and the entity↔contact link never leave the device.
     private func startMessage(_ item: Item) {
-        if MFMessageComposeViewController.canSendText() {
-            composing = item
+        guard case .nudge(let n) = item.card, n.entity.isPerson else { return }
+        guard MFMessageComposeViewController.canSendText() else { showNoMessaging = true; return }
+        if let link = ContactLinkStore.resolve(entityId: n.entity.id, name: n.entity.name) {
+            sheet = .compose(item, [link.phone])
         } else {
-            showNoMessaging = true
+            sheet = .pick(item)
+        }
+    }
+
+    /// Present the composer after the picker has dismissed. The brief delay lets the
+    /// picker sheet finish dismissing so the composer presents cleanly.
+    private func presentCompose(_ item: Item, _ recipients: [String]) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            sheet = .compose(item, recipients)
         }
     }
 
@@ -370,7 +414,7 @@ struct ReviewView: View {
     /// On a successful send, auto-track the outreach (logs the catch-up, which
     /// suppresses the nudge) and advance. Cancel/fail just closes the composer.
     private func handleMessageResult(_ item: Item, _ result: MessageComposeResult) {
-        composing = nil
+        sheet = nil
         guard result == .sent else { return }
         if case .nudge(let n) = item.card {
             Task { try? await session.logContact(entityId: n.entity.id) }
