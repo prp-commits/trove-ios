@@ -51,6 +51,61 @@ struct AuthConfig: Decodable, Sendable {
     let google: Bool?
 }
 
+// MARK: - Device calendar/contacts sync (Phase C)
+// Posted to POST /api/calendar/device-sync. Keys are camelCase to match the
+// backend's normalized event shape (the encoder preserves property names).
+
+struct DeviceAttendee: Encodable, Sendable {
+    let email: String?
+    let displayName: String?
+    let isSelf: Bool
+    let responseStatus: String
+    let resource: Bool
+    enum CodingKeys: String, CodingKey {
+        case email, displayName, responseStatus, resource
+        case isSelf = "self"   // backend reads attendee.self
+    }
+}
+
+struct DeviceEvent: Encodable, Sendable {
+    let id: String              // occurrence-unique: eventIdentifier + start
+    let title: String
+    let start: String           // ISO8601
+    let end: String?
+    let allDay: Bool
+    let organizerSelf: Bool
+    let machineCalendar: Bool
+    let canceled: Bool
+    let attendees: [DeviceAttendee]
+}
+
+struct DeviceBirthday: Encodable, Sendable {
+    let month: Int
+    let day: Int
+    let year: Int?
+}
+
+struct DeviceContact: Encodable, Sendable {
+    let name: String
+    let emails: [String]
+    let birthday: DeviceBirthday?
+}
+
+struct DeviceSyncRequest: Encodable, Sendable {
+    let events: [DeviceEvent]
+    let contacts: [DeviceContact]
+}
+
+struct DeviceSyncSummary: Decodable, Sendable {
+    let ok: Bool?
+    let kept: Int?
+    let skipped: Int?
+    let created: Int?
+    let resolved: Int?
+    let held: Int?
+    let interactions: Int?
+}
+
 // /auth/* bodies are snake_case — map explicitly (no global encode strategy).
 struct SignUpRequest: Encodable, Sendable {
     let email: String

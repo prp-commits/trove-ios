@@ -204,6 +204,20 @@ final class Session {
         try await api.getData("/api/sources/\(sourceId)/image")
     }
 
+    // Device calendar/contacts sync (Phase C). The client reads EventKit +
+    // Contacts on-device and posts the normalized batch; the server reuses the
+    // calendar pipeline (keepEvent → resolve/create/hold → warmth interactions).
+    @discardableResult
+    func syncDeviceCalendar(events: [DeviceEvent], contacts: [DeviceContact] = []) async throws -> DeviceSyncSummary {
+        let res: DeviceSyncSummary = try await api.request(
+            "/api/calendar/device-sync", .post,
+            body: DeviceSyncRequest(events: events, contacts: contacts)
+        )
+        dataVersion += 1   // new interactions/entities → refresh Pulse + Library
+        Analytics.capture("device_calendar_synced", ["events": events.count, "interactions": res.interactions ?? 0])
+        return res
+    }
+
     // Pulse (M5)
     func loadPulse() async throws -> [PulseItem] {
         let res: HealthResponse = try await api.request("/api/relationships/health")
