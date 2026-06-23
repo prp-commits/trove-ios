@@ -483,6 +483,12 @@ struct ReviewView: View {
     /// clock). Returns the matching reversal for the Undo pill.
     private func doShowUp(_ item: Item) -> () -> Void {
         guard case .nudge(let n) = item.card else { return {} }
+        // The explicit "Showed up" act (button or message-sent) — the headline moat
+        // signal. Distinct from a KEEP swipe (action:"kept").
+        Analytics.capture("nudge_acted", ["nudge_kind": n.pill.kind ?? "none",
+                                          "event_type": n.pill.eventType ?? "none",
+                                          "action": "showed_up"])
+        Analytics.noteValueMoment()
         if let eid = n.pill.eventId {
             Task { try? await session.actEvent(eid) }
             return { Task { try? await session.unactEvent(eid) } }

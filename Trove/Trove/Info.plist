@@ -2,12 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>Trove uses your contacts to put names to the people you meet with and to remember their birthdays. It never adds your whole address book to your library.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -20,5 +14,7 @@
 		</dict>
 		<dict/>
 	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.</string>
 </dict>
 </plist>

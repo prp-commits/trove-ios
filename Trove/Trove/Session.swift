@@ -118,6 +118,7 @@ final class Session {
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
         dataVersion += 1
         Analytics.capture("ingest_completed", ["kind": "text", "count": res.count])
+        Analytics.noteCapture()
         return res
     }
 
@@ -125,6 +126,7 @@ final class Session {
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestURL(url: url))
         dataVersion += 1
         Analytics.capture("ingest_completed", ["kind": "url", "count": res.count])
+        Analytics.noteCapture()
         return res
     }
 
@@ -133,6 +135,7 @@ final class Session {
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestImage(imageBase64: base64, imageMediaType: mediaType, title: title))
         dataVersion += 1
         Analytics.capture("ingest_completed", ["kind": "image", "count": res.count])
+        Analytics.noteCapture()
         return res
     }
 
@@ -140,6 +143,7 @@ final class Session {
     func ask(_ question: String) async throws -> AskResponse {
         let res: AskResponse = try await api.request("/api/ask", .post, body: AskRequest(question: question))
         Analytics.capture("ask_submitted")
+        Analytics.noteValueMoment()        // engaging with Ask = an activation value moment
         return res
     }
 
@@ -278,14 +282,30 @@ final class Session {
     func loadDeck(n: Int = 15) async throws -> [DeckCard] {
         let res: DeckResponse = try await api.request("/api/review/deck?n=\(n)")
         Analytics.capture("deck_viewed", ["count": res.cards.count])
+        // Per-nudge impression → the act-rate denominator. (Server also records a
+        // de-duped impression in D114; this feeds PostHog's funnel/cohort tooling.)
+        for card in res.cards {
+            switch card {
+            case .nudge(let n):
+                Analytics.capture("nudge_shown", ["nudge_kind": n.pill.kind ?? "none",
+                                                  "event_type": n.pill.eventType ?? "none"])
+            case .other(let o):
+                Analytics.capture("nudge_shown", ["nudge_kind": o.type, "event_type": "none"])
+            }
+        }
         return res.cards
     }
 
     func swipe(entityId: Int, direction: String, nudgeKind: String?, eventType: String?) async {
         let body = SwipeRequest(entityId: entityId, direction: direction, nudgeKind: nudgeKind, eventType: eventType)
         _ = try? await api.request("/api/review/swipe", .post, body: body) as OKResponse
+        let props: [String: Any] = ["nudge_kind": nudgeKind ?? "none", "event_type": eventType ?? "none"]
         if direction == "right" {
-            Analytics.capture("nudge_acted", ["nudge_kind": nudgeKind ?? "none", "event_type": eventType ?? "none"])
+            // KEEP swipe — a positive signal, distinct from the explicit "Showed up"
+            // act (which carries action:"showed_up" from the deck).
+            Analytics.capture("nudge_acted", props.merging(["action": "kept"]) { a, _ in a })
+        } else {
+            Analytics.capture("nudge_dismissed", props)   // fatigue guardrail
         }
     }
 
@@ -294,6 +314,8 @@ final class Session {
         struct Body: Encodable { let entityId: Int; let days: Int; let nudgeKind: String?; let eventType: String? }
         _ = try? await api.request("/api/review/snooze", .post,
                                    body: Body(entityId: entityId, days: days, nudgeKind: nudgeKind, eventType: eventType)) as OKResponse
+        Analytics.capture("nudge_snoozed", ["nudge_kind": nudgeKind ?? "none",
+                                            "event_type": eventType ?? "none", "days": days])
         dataVersion += 1
     }
 
