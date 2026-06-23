@@ -7,9 +7,28 @@
 
 import SwiftUI
 import GoogleSignIn
+import UIKit
+
+/// Receives the APNs device token (remote push, D115 Build #2). A pure-SwiftUI app
+/// can't get this callback, so we bridge a minimal app delegate. The token is handed
+/// to NotificationManager, which registers it with the server (POST /api/devices).
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Task { @MainActor in NotificationManager.shared.registerAPNsToken(hex) }
+    }
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Non-fatal: remote push just won't arrive for this launch.
+        print("[apns] registration failed: \(error.localizedDescription)")
+    }
+}
 
 @main
 struct TroveApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             RootView()

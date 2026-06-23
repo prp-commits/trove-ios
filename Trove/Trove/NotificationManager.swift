@@ -20,6 +20,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private weak var session: Session?
     private var configured = false
+    private var pendingAPNsToken: String?   // may arrive before the session is wired
 
     func configure(session: Session) {
         self.session = session
@@ -27,6 +28,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             UNUserNotificationCenter.current().delegate = self
             configured = true
         }
+        flushAPNsToken()   // register a token that arrived before the session existed
     }
 
     /// Current notification authorization status — used to decide whether to show
@@ -40,11 +42,24 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let center = UNUserNotificationCenter.current()
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         guard granted else { return }
-        // Slice 1: a stable per-install id stands in for the APNs token (which a
-        // real remote-push build will supply via registerForRemoteNotifications).
-        let token = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        try? await session?.registerDevice(token: token)
+        // Remote push (D115 Build #2): ask iOS for the APNs device token. It arrives
+        // asynchronously in AppDelegate → registerAPNsToken. Must run on the main thread.
+        UIApplication.shared.registerForRemoteNotifications()
         await refresh()
+    }
+
+    /// Called from the AppDelegate when the APNs device token arrives. Registers it
+    /// (+ this device's timezone) with the server so it can push remotely. If the
+    /// session isn't wired yet, stash it and flush on configure().
+    func registerAPNsToken(_ hexToken: String) {
+        pendingAPNsToken = hexToken
+        flushAPNsToken()
+    }
+
+    private func flushAPNsToken() {
+        guard let token = pendingAPNsToken, session != nil else { return }
+        pendingAPNsToken = nil
+        Task { try? await session?.registerDevice(token: token) }
     }
 
     /// Pull the next nudge and schedule a local notification for it (at the
