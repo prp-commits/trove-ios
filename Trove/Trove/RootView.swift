@@ -5,6 +5,7 @@ struct RootView: View {
     @State private var session = Session()
     @State private var minSplashDone = false   // keep the splash up a beat even on a fast bootstrap
     @AppStorage("hasOnboarded") private var hasOnboarded = false
+    @AppStorage("hasConsented") private var hasConsented = false
     @Environment(\.scenePhase) private var scenePhase
 
     /// Show the splash while bootstrapping AND until a minimum on-screen time has
@@ -23,9 +24,12 @@ struct RootView: View {
             case .signedOut:
                 SignInView()
             case .signedIn(let user):
-                // Value-first first-run (#1) before the app + any permission ask.
-                // A non-empty library (demo / returning user) self-skips inside.
-                if hasOnboarded {
+                // One-time data-consent BEFORE any cloud write (the first-run capture
+                // sends a real note to Anthropic). Demo/sandbox skips it. Then the
+                // value-first first-run (#1), then the app + permission priming.
+                if user.provider != "demo" && !hasConsented {
+                    ConsentView(onAccept: { hasConsented = true })
+                } else if hasOnboarded {
                     MainTabView(user: user)
                 } else {
                     FirstRunView(onComplete: { hasOnboarded = true })

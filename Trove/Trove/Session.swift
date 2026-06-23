@@ -87,6 +87,7 @@ final class Session {
         // first-run + priming again (existing-account/already-connected states still
         // self-skip via their own checks).
         UserDefaults.standard.set(false, forKey: "hasOnboarded")
+        UserDefaults.standard.set(false, forKey: "hasConsented")
         UserDefaults.standard.set(false, forKey: "hasPrimedNudges")
         UserDefaults.standard.set(false, forKey: "hasPrimedDeviceSync")
         // Drop on-device contact links + phone numbers so they never bleed across
