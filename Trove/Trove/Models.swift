@@ -291,6 +291,19 @@ struct AddInsightRequest: Encodable, Sendable {
 struct TextRequest: Encodable, Sendable { let text: String }
 struct NameRequest: Encodable, Sendable { let name: String }
 
+/// PATCH /auth/me — edit name + avatar (D87). The encoder doesn't snake-case, so
+/// keys are mapped explicitly. `photoUrl` may be a `data:` URI (backend caps it).
+struct UpdateProfileRequest: Encodable, Sendable {
+    let firstName: String?
+    let lastName: String?
+    let photoUrl: String?
+    enum CodingKeys: String, CodingKey {
+        case firstName = "first_name"
+        case lastName = "last_name"
+        case photoUrl = "photo_url"
+    }
+}
+
 // MARK: - Push / right-time delivery (D115)
 
 struct RegisterDeviceRequest: Encodable, Sendable {

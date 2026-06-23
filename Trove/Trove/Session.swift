@@ -101,6 +101,16 @@ final class Session {
         Analytics.reset()
     }
 
+    /// Edit name + avatar (D87). PATCH /auth/me recomputes the display name from
+    /// first/last and accepts a `data:` URI photo (capped server-side); the response
+    /// is the updated user, which becomes the new signed-in state.
+    func updateProfile(firstName: String, lastName: String, photoUrl: String?) async throws {
+        let body = UpdateProfileRequest(firstName: firstName, lastName: lastName, photoUrl: photoUrl)
+        let me: MeResponse = try await api.request("/auth/me", .patch, body: body)
+        state = .signedIn(me.user)
+        dataVersion += 1
+    }
+
     // MARK: - Data (M1)
 
     func loadEntities() async throws -> [Entity] {

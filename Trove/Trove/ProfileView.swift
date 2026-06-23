@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct ProfileView: View {
     @Environment(Session.self) private var session
@@ -7,6 +8,7 @@ struct ProfileView: View {
     @Environment(\.openURL) private var openURL
     let user: User
     @State private var testing = false
+    @State private var editing = false
     @State private var testNote: String?
     @State private var calWorking = false
     @State private var calStatus: String?
@@ -20,15 +22,21 @@ struct ProfileView: View {
             VStack(spacing: 18) {
                 Text("Trove").font(.troveSerif(34)).foregroundStyle(Theme.ink).padding(.top, 16)
 
-                VStack(spacing: 6) {
-                    Text(user.displayName).font(.troveSerif(24)).foregroundStyle(Theme.ink)
-                    if let email = user.email {
-                        Text(email).font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                VStack(spacing: 12) {
+                    AvatarView(photoUrl: user.photoUrl, name: user.displayName, size: 76)
+                    VStack(spacing: 4) {
+                        Text(user.displayName).font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                        if let email = user.email {
+                            Text(email).font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                        }
+                        if user.emailVerified == false {
+                            Text("Email not verified")
+                                .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                        }
                     }
-                    if user.emailVerified == false {
-                        Text("Email not verified")
-                            .font(.troveMono(10)).foregroundStyle(Theme.muted)
-                    }
+                    Button("Edit profile") { editing = true }
+                        .buttonStyle(PillButtonStyle(filled: false))
+                        .padding(.top, 2)
                 }
                 .padding(.vertical, 24)
                 .frame(maxWidth: .infinity)
@@ -88,6 +96,7 @@ struct ProfileView: View {
         }
         .background(Theme.bg)
         .task { refreshCalState() }
+        .sheet(isPresented: $editing) { EditProfileView(user: user) }
     }
 
     // MARK: Connections (Phase C) — state-driven; sync is silent, control is Unsync.
@@ -182,6 +191,168 @@ struct ProfileView: View {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         if let url = URL(string: "mailto:\(Config.feedbackEmail)?subject=\(enc(subject))&body=\(enc(body))") {
             openURL(url)
+        }
+    }
+}
+
+// MARK: - Avatar
+
+/// A circular avatar that renders either a remote `http(s)` photo (e.g. Google) or
+/// an inline `data:` URI (a user-picked photo), falling back to initials.
+struct AvatarView: View {
+    let photoUrl: String?
+    let name: String
+    var size: CGFloat = 76
+
+    @State private var uiImage: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let uiImage {
+                Image(uiImage: uiImage).resizable().scaledToFill()
+            } else {
+                Circle().fill(Theme.line)
+                Text(initials).font(.troveSerif(size * 0.42)).foregroundStyle(Theme.ink2)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .task(id: photoUrl) { await load() }
+    }
+
+    private var initials: String {
+        let s = name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return s.isEmpty ? "·" : s.uppercased()
+    }
+
+    private func load() async {
+        uiImage = nil
+        guard let s = photoUrl, !s.isEmpty else { return }
+        if s.hasPrefix("data:") {
+            guard let comma = s.firstIndex(of: ","),
+                  let data = Data(base64Encoded: String(s[s.index(after: comma)...])) else { return }
+            uiImage = UIImage(data: data)
+        } else if let url = URL(string: s),
+                  let (data, _) = try? await URLSession.shared.data(from: url) {
+            uiImage = UIImage(data: data)
+        }
+    }
+}
+
+// MARK: - Edit profile (name + photo)
+
+/// Minimal account editing for the beta: name + avatar. Email is read-only (provider
+/// identity). Password change + account deletion are a post-beta "Account management"
+/// pass (IOS_ROADMAP). The photo is downscaled to a small JPEG and sent as a `data:`
+/// URI via PATCH /auth/me.
+struct EditProfileView: View {
+    @Environment(Session.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    let user: User
+
+    @State private var firstName: String
+    @State private var lastName: String
+    @State private var photoUrl: String?
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var saving = false
+    @State private var error: String?
+
+    init(user: User) {
+        self.user = user
+        _firstName = State(initialValue: user.firstName ?? "")
+        _lastName  = State(initialValue: user.lastName ?? "")
+        _photoUrl  = State(initialValue: user.photoUrl)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 22) {
+                    VStack(spacing: 12) {
+                        AvatarView(photoUrl: photoUrl, name: [firstName, lastName].joined(separator: " "), size: 96)
+                        PhotosPicker(selection: $pickerItem, matching: .images) {
+                            Text("Change photo").font(.troveMono(13, .medium)).foregroundStyle(Theme.gold)
+                        }
+                    }
+                    .padding(.top, 8)
+
+                    VStack(spacing: 12) {
+                        field("First name", $firstName)
+                        field("Last name", $lastName)
+                    }
+
+                    if let error {
+                        Text(error).font(.troveMono(12)).foregroundStyle(Theme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                }
+                .padding(20)
+                .frame(maxWidth: 480).frame(maxWidth: .infinity)
+            }
+            .background(Theme.bg)
+            .navigationTitle("Edit profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving…" : "Save") { save() }
+                        .disabled(saving || firstName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onChange(of: pickerItem) { _, item in Task { await loadPhoto(item) } }
+        }
+    }
+
+    private func field(_ label: String, _ text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased()).font(.troveMono(10)).foregroundStyle(Theme.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            TextField(label, text: text)
+                .font(.troveMono(15)).foregroundStyle(Theme.ink)
+                .padding(12)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusField))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusField).stroke(Theme.line, lineWidth: 1))
+        }
+    }
+
+    private func loadPhoto(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self), let ui = UIImage(data: data) else {
+            error = "Couldn't load that image."; return
+        }
+        let small = ui.avatarDownscaled(to: 256)
+        guard let jpeg = small.jpegData(compressionQuality: 0.7) else { return }
+        photoUrl = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+    }
+
+    private func save() {
+        saving = true; error = nil
+        Task {
+            do {
+                try await session.updateProfile(
+                    firstName: firstName.trimmingCharacters(in: .whitespaces),
+                    lastName: lastName.trimmingCharacters(in: .whitespaces),
+                    photoUrl: photoUrl)
+                Haptics.success()
+                dismiss()
+            } catch {
+                self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
+                saving = false
+            }
+        }
+    }
+}
+
+private extension UIImage {
+    /// Aspect-preserving downscale to a max dimension — keeps the avatar payload small.
+    func avatarDownscaled(to maxDim: CGFloat) -> UIImage {
+        let m = max(size.width, size.height)
+        guard m > maxDim else { return self }
+        let s = maxDim / m
+        let newSize = CGSize(width: size.width * s, height: size.height * s)
+        return UIGraphicsImageRenderer(size: newSize).image { _ in
+            draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 }
