@@ -16,5 +16,7 @@
 	</array>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
