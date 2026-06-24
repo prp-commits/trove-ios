@@ -26,7 +26,7 @@ struct ConsentView: View {
 
                     VStack(alignment: .leading, spacing: 14) {
                         point("sparkles", "Your notes help build profiles.",
-                              "What you save is sent to our AI (Anthropic's Claude) to pull out the useful details, then stored on our secured server. It's not end-to-end encrypted.")
+                              "What you save is sent to a third-party AI provider to pull out the useful details, then stored on our secured server. It's not end-to-end encrypted.")
                         point("lock", "It's yours alone.",
                               "Your notes and the profiles you build are never shared or sold — they're private to your account.")
                         point("slider.horizontal.3", "You're in control.",
