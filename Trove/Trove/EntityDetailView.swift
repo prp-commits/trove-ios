@@ -304,6 +304,7 @@ struct EntityDetailView: View {
 }
 
 private struct InsightRow: View {
+    @Environment(\.openURL) private var openURL
     let insight: Insight
     var onEdit: () -> Void
     var onDelete: () -> Void
@@ -316,6 +317,19 @@ private struct InsightRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             if insight.hasPhoto, let sid = insight.sourceId {
                 RemoteImage(sourceId: sid)
+            }
+            // D141: video-sourced insight → tappable chip that deep-links back to
+            // the reel (Universal Link → the source app, Safari fallback).
+            if let videoURL = insight.videoURL {
+                Button { openURL(videoURL) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.rectangle.fill")
+                        Text("Watch on \(insight.videoProviderLabel)")
+                    }
+                    .font(.troveMono(11, .medium))
+                    .foregroundStyle(Theme.gold)
+                }
+                .buttonStyle(.plain)
             }
             Text(metaLine).font(.troveMono(10)).foregroundStyle(Theme.muted)
         }

@@ -168,9 +168,25 @@ struct Insight: Decodable, Identifiable, Sendable {
     let createdAt: String?
     let sourceKind: String?
     let sourceId: Int?
-    let hasImage: Int?   // SQLite returns 1/0, not a JSON bool
+    let sourceRef: String?   // D141: original URL for url/video sources (← source_ref)
+    let hasImage: Int?       // SQLite returns 1/0, not a JSON bool
 
     var hasPhoto: Bool { (hasImage ?? 0) == 1 }
+
+    // D141: a video-sourced insight links back to the reel. Tapping opens the
+    // https URL → iOS Universal Links launch the source app (Safari fallback).
+    var videoURL: URL? {
+        guard sourceKind == "video", let ref = sourceRef else { return nil }
+        return URL(string: ref)
+    }
+    /// "YouTube" / "Instagram" / "TikTok" for the source chip (derived from host).
+    var videoProviderLabel: String {
+        let host = videoURL?.host?.lowercased() ?? ""
+        if host.contains("youtu") { return "YouTube" }
+        if host.contains("instagr") { return "Instagram" }
+        if host.contains("tiktok") { return "TikTok" }
+        return "video"
+    }
 }
 
 // MARK: - Capture / ingest (M2)
@@ -193,6 +209,37 @@ struct IngestImage: Encodable, Sendable {
     let imageMediaType: String
     let title: String?
 }
+
+// MARK: - Video capture (D141, Phase B)
+
+/// Per-user connection toggles (`/api/connections`). Add fields as providers land.
+struct ConnectionsState: Decodable, Sendable {
+    let video: Bool?
+    let zola: Bool?
+}
+
+struct ConnectionToggle: Encodable, Sendable { let enabled: Bool }
+
+/// An async video-summarization job (`/api/video-jobs`). Drives the activity surface.
+struct VideoJob: Decodable, Identifiable, Sendable {
+    let id: Int
+    let url: String
+    let provider: String        // youtube | instagram | tiktok | video
+    let status: String          // QUEUED | ONGOING | DONE | FAILED
+    let sourceId: Int?
+    let error: String?
+    let createdAt: String?
+
+    var isPending: Bool { status == "QUEUED" || status == "ONGOING" }
+    var isFailed: Bool { status == "FAILED" }
+    var providerLabel: String {
+        switch provider { case "youtube": return "YouTube"; case "instagram": return "Instagram"
+                          case "tiktok": return "TikTok"; default: return "Video" }
+    }
+}
+
+/// 202 ack from `/api/ingest` for a video URL (extra keys ignored).
+struct IngestAck: Decodable, Sendable { let jobId: Int? }
 
 // MARK: - Pulse (M5)
 

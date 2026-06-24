@@ -123,6 +123,28 @@ final class Session {
         return res
     }
 
+    // MARK: - Video capture (D141, Phase B)
+
+    func loadConnections() async throws -> ConnectionsState {
+        try await api.request("/api/connections")
+    }
+
+    /// Toggle the per-user video-capture connection (gates the share → WayIn path).
+    func setVideoCapture(_ enabled: Bool) async throws {
+        let _: ConnectionsState = try await api.request("/api/connections/video", .put, body: ConnectionToggle(enabled: enabled))
+    }
+
+    /// Recent video jobs for the "Recent captures" activity surface.
+    func loadVideoJobs() async throws -> [VideoJob] {
+        try await api.request("/api/video-jobs")
+    }
+
+    /// Retry a failed capture by re-submitting its URL (fire-and-forget → 202).
+    func retryVideo(url: String) async throws {
+        let _: IngestAck = try await api.request("/api/ingest", .post, body: IngestURL(url: url))
+        dataVersion += 1
+    }
+
     // Capture (M2) — the AI ingest path.
     func ingestText(_ text: String, title: String? = nil) async throws -> IngestResponse {
         let cleanTitle = (title?.isEmpty ?? true) ? nil : title
