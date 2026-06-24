@@ -28,13 +28,15 @@ enum ShareIngest {
         }
     }
 
-    static func ingestText(_ text: String, title: String?) async throws {
+    @discardableResult
+    static func ingestText(_ text: String, title: String?) async throws -> Bool {
         var body: [String: Any] = ["kind": "text", "text": text]
         if let title, !title.isEmpty { body["title"] = title }
-        try await post(body)
+        return try await post(body)
     }
 
-    static func ingestURL(_ url: String) async throws {
+    /// Returns true when the server reported this video was already saved (dedup).
+    static func ingestURL(_ url: String) async throws -> Bool {
         try await post(["kind": "url", "url": url])
     }
 
@@ -46,7 +48,9 @@ enum ShareIngest {
 
     // MARK: - Core
 
-    private static func post(_ json: [String: Any], isRetry: Bool = false) async throws {
+    /// @returns true when the server replied 200 {duplicate:true} (already saved).
+    @discardableResult
+    private static func post(_ json: [String: Any], isRetry: Bool = false) async throws -> Bool {
         guard let token = SharedKeychain.read(SharedKeychain.accessKey) else { throw IngestError.noSession }
         guard let url = URL(string: ShareConfig.baseURL + "/api/ingest") else { throw IngestError.badResponse }
         var req = URLRequest(url: url)
@@ -66,6 +70,8 @@ enum ShareIngest {
         guard (200..<300).contains(http.statusCode) else {
             throw IngestError.server(http.statusCode, message(from: data))
         }
+        let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["duplicate"] as? Bool) ?? false
     }
 
     /// One-shot refresh: `/auth/refresh` takes snake_case `refresh_token`; on

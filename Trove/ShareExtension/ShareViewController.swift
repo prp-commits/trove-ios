@@ -22,8 +22,8 @@ class ShareViewController: SLComposeServiceViewController {
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
         Task {
             do {
-                try await Self.handle(items: items, note: note)
-                await MainActor.run { self.complete() }
+                let duplicate = try await Self.handle(items: items, note: note)
+                await MainActor.run { duplicate ? self.completeDuplicate() : self.complete() }
             } catch {
                 await MainActor.run { self.fail(error) }
             }
@@ -38,6 +38,18 @@ class ShareViewController: SLComposeServiceViewController {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 
+    // De-dup (D141): the server already had this video, so nothing was created —
+    // tell the user instead of a silent "success" that produces no new note.
+    private func completeDuplicate() {
+        let alert = UIAlertController(title: "Already saved",
+                                      message: "You've already saved this video to Trove.",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+        })
+        present(alert, animated: true)
+    }
+
     private func fail(_ error: Error) {
         let message = (error as? ShareIngest.IngestError)?.errorDescription ?? error.localizedDescription
         let alert = UIAlertController(title: "Couldn't save to Trove", message: message, preferredStyle: .alert)
@@ -49,7 +61,8 @@ class ShareViewController: SLComposeServiceViewController {
 
     // MARK: - Extraction + dispatch (priority: image > url > text)
 
-    private static func handle(items: [NSExtensionItem], note: String) async throws {
+    /// @returns true when the capture was a duplicate (already-saved video).
+    private static func handle(items: [NSExtensionItem], note: String) async throws -> Bool {
         let providers = items.flatMap { $0.attachments ?? [] }
 
         if let p = providers.first(where: { $0.hasImage }) {
@@ -57,23 +70,21 @@ class ShareViewController: SLComposeServiceViewController {
             try await ShareIngest.ingestImage(base64: data.base64EncodedString(),
                                               mediaType: mediaType,
                                               title: note.isEmpty ? nil : note)
-            return
+            return false
         }
         if let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {
             let url = try await p.loadURL()
-            try await ShareIngest.ingestURL(url.absoluteString)
-            return
+            return try await ShareIngest.ingestURL(url.absoluteString)
         }
         if let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }) {
             let text = try await p.loadText()
             let combined = note.isEmpty ? text : text + "\n\n" + note
-            try await ShareIngest.ingestText(combined, title: nil)
-            return
+            // A video may arrive as text (YouTube) — the server dedups + reports it.
+            return try await ShareIngest.ingestText(combined, title: nil)
         }
         // Nothing recognized but the user typed a note → capture it as text.
         if !note.isEmpty {
-            try await ShareIngest.ingestText(note, title: nil)
-            return
+            return try await ShareIngest.ingestText(note, title: nil)
         }
         throw ShareIngest.IngestError.badResponse
     }
