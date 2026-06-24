@@ -44,6 +44,9 @@ enum Analytics {
         guard !apiKey.isEmpty, !optedOut, let did = distinctId else { return }
         var props = properties
         props["$lib"] = "trove-ios"
+        // Never let PostHog GeoIP-enrich from the request IP — App Privacy declares
+        // Location is NOT collected, and the promise is content-free / IP-discarded.
+        props["$geoip_disable"] = true
         let payload: [String: Any] = [
             "api_key": apiKey,
             "event": event,
