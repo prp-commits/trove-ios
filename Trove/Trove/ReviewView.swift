@@ -140,11 +140,11 @@ struct ReviewView: View {
                 }
                 .ignoresSafeArea()
             case .pick(let item):
-                if case .nudge(let n) = item.card {
+                if let person = messagePerson(of: item) {
                     ContactPickerView(
                         onPick: { link in
-                            ContactLinkStore.save(link, for: n.entity.id)
-                            resolvedLinks[n.entity.id] = link
+                            ContactLinkStore.save(link, for: person.id)
+                            resolvedLinks[person.id] = link
                             sheet = nil
                             presentCompose(item, [link.phone])
                         },
@@ -222,7 +222,7 @@ struct ReviewView: View {
     private func cardView(_ item: Item) -> some View {
         switch item.card {
         case .nudge(let n): nudgeCard(n, item: item)
-        case .other(let o): otherCard(o)
+        case .other(let o): otherCard(o, item: item)
         }
     }
 
@@ -296,27 +296,68 @@ struct ReviewView: View {
         .task(id: n.entity.id) { await resolveLink(n) }
     }
 
-    private func otherCard(_ o: OtherCard) -> some View {
-        cardShell {
+    private func otherCard(_ o: OtherCard, item: Item) -> some View {
+        let isConnection = o.type == "connection"
+        let person = o.connectionPerson
+        let cites = o.connectionCites
+        return cardShell {
             Text(o.type.capitalized.uppercased())
                 .font(.troveMono(10, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
-            Text(o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes")
-                .font(.troveSerif(21)).foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if let entity = o.entity {
-                HStack(spacing: 6) {
-                    TypeChip(isPerson: entity.isPerson)
-                    Text(entity.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
-                }
+            // Headline. For a connection with a person side, tapping it texts them
+            // (reuses the contact lookup/storage from the person nudges).
+            Button { if isConnection, person != nil { startMessage(item) } } label: {
+                Text(o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes")
+                    .font(.troveSerif(21)).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            if let insights = o.insights, !insights.isEmpty {
+            .buttonStyle(.plain)
+            .disabled(!(isConnection && person != nil))
+
+            // A connection shows BOTH sides; other cards show their one entity.
+            if isConnection, let a = o.entityA, let b = o.entityB {
+                HStack(spacing: 8) {
+                    entityChip(a)
+                    Text("×").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                    entityChip(b)
+                }
+            } else if let entity = o.entity {
+                entityChip(entity)
+            }
+
+            // The cited insights from BOTH entities (connection) or the card's insights —
+            // same "evidence below the nudge" treatment as every other Review card.
+            if isConnection, !cites.isEmpty {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                ForEach(cites) { c in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("• \(c.text)").font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let name = c.entityName {
+                            Text(name).font(.troveMono(10)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                }
+            } else if let insights = o.insights, !insights.isEmpty {
                 Rectangle().fill(Theme.line).frame(height: 1)
                 ForEach(insights.prefix(3)) { ins in
                     Text("• \(ins.text)").font(.troveMono(12)).foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if isConnection, let p = person {
+                Text("Tap to text \(p.name)").font(.troveMono(11)).foregroundStyle(Theme.gold)
+            }
             Spacer(minLength: 0)
+        }
+    }
+
+    private func entityChip(_ e: EntityRef) -> some View {
+        HStack(spacing: 6) {
+            TypeChip(isPerson: e.isPerson)
+            Text(e.name).font(.troveMono(11)).foregroundStyle(Theme.ink2)
         }
     }
 
@@ -412,12 +453,21 @@ struct ReviewView: View {
     /// the composer. If we can't, show the one-time contact picker first; the pick is
     /// stored on-device so the next message to them is pre-addressed. Phone numbers
     /// and the entity↔contact link never leave the device.
+    /// The person to message for a card — a person nudge's entity, or the person
+    /// side of a connection card (D143). Other cards have no message target.
+    private func messagePerson(of item: Item) -> EntityRef? {
+        switch item.card {
+        case .nudge(let n): return n.entity.isPerson ? n.entity : nil
+        case .other(let o): return o.connectionPerson
+        }
+    }
+
     private func startMessage(_ item: Item) {
-        guard case .nudge(let n) = item.card, n.entity.isPerson else { return }
+        guard let person = messagePerson(of: item) else { return }
         guard MFMessageComposeViewController.canSendText() else { showNoMessaging = true; return }
-        if let link = resolvedLinks[n.entity.id]
-            ?? ContactLinkStore.resolve(entityId: n.entity.id, name: n.entity.name) {
-            resolvedLinks[n.entity.id] = link
+        if let link = resolvedLinks[person.id]
+            ?? ContactLinkStore.resolve(entityId: person.id, name: person.name) {
+            resolvedLinks[person.id] = link
             sheet = .compose(item, [link.phone])
         } else {
             sheet = .pick(item)

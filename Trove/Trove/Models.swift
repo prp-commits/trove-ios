@@ -328,6 +328,27 @@ struct OtherCard: Decodable, Sendable {
     let prompt: String?
     let relationship: String?
     let insights: [Insight]?
+    // Connection cards (D74/D143): two entities + a cited insight from each side.
+    let entityA: EntityRef?
+    let entityB: EntityRef?
+    let citeA: [ConnectionCite]?
+    let citeB: [ConnectionCite]?
+
+    /// The person side of a connection (if any) — the one we offer "text" on.
+    var connectionPerson: EntityRef? {
+        if entityA?.isPerson == true { return entityA }
+        if entityB?.isPerson == true { return entityB }
+        return nil
+    }
+    /// Both cited insights, each tagged with its entity, for rendering below the card.
+    var connectionCites: [ConnectionCite] { (citeA ?? []) + (citeB ?? []) }
+}
+
+/// A cited insight on a connection card (← cite_a / cite_b): the note + which entity it's from.
+struct ConnectionCite: Decodable, Identifiable, Sendable {
+    let id: Int
+    let text: String
+    let entityName: String?   // ← entity_name
 }
 
 struct AddInsightRequest: Encodable, Sendable {
