@@ -63,6 +63,11 @@ Secrets.xcconfig
 *.local.xcconfig
 .env
 
+# APNs auth keys (provider .p8 private keys) — live credentials. Never commit;
+# the real key goes into the Render env var APNS_KEY_P8, not the repo.
+*.p8
+AuthKey_*.p8
+
 # Downloaded Google OAuth client plist — the SDK is configured in code
 # (Config.googleIOSClientID) + the URL scheme is in Info.plist, so this file
 # isn't used. (Its values are public, but no need to track it.)

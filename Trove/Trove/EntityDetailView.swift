@@ -154,7 +154,7 @@ struct EntityDetailView: View {
         .confirmationDialog("Delete the only note?", isPresented: $showInsightDelete,
                             titleVisibility: .visible, presenting: pendingInsightDelete) { ins in
             Button("Delete note & \(titleName)", role: .destructive) {
-                Task { await deleteAndDismiss(ins.id) }
+                Task { await deleteAndDismiss(ins) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
@@ -233,17 +233,26 @@ struct EntityDetailView: View {
             pendingInsightDelete = insight
             showInsightDelete = true       // confirm: this removes the entity too
         } else {
-            Task { await delete(insight.id) }
+            Task { await delete(insight) }
         }
     }
 
-    private func delete(_ id: Int) async {
-        try? await session.deleteInsight(id)
+    private func delete(_ insight: Insight) async {
+        do {
+            try await session.deleteInsight(insight.id)
+            // A young delete is a strong "extraction was wrong" signal (content-free). D138.
+            Analytics.capture("insight_deleted", ["cascaded_to_entity": false,
+                                                  "age_bucket": DateUtils.ageBucket(insight.createdAt)])
+        } catch { }
         await reload()
     }
 
-    private func deleteAndDismiss(_ id: Int) async {
-        try? await session.deleteInsight(id)
+    private func deleteAndDismiss(_ insight: Insight) async {
+        do {
+            try await session.deleteInsight(insight.id)
+            Analytics.capture("insight_deleted", ["cascaded_to_entity": true,
+                                                  "age_bucket": DateUtils.ageBucket(insight.createdAt)])
+        } catch { }
         dismiss()   // the entity is gone with its last insight; Library refreshes via dataVersion
     }
 
@@ -274,8 +283,23 @@ struct EntityDetailView: View {
     }
 
     private func deleteEntity() async {
-        try? await session.deleteEntity(entityId)
+        // Capture the shape before the row is gone (content-free: type + coarse count).
+        let type = isPersonNow ? "person" : "topic"
+        let bucket = Self.countBucket(insightCount)
+        do {
+            try await session.deleteEntity(entityId)
+            Analytics.capture("entity_deleted", ["entity_type": type, "insight_count_bucket": bucket])
+        } catch { }
         dismiss()
+    }
+
+    /// Coarse bucket for an entity's note count — anti-fingerprint in a small cohort.
+    private static func countBucket(_ n: Int) -> String {
+        switch n {
+        case ...1:  return "1"
+        case 2...5: return "2-5"
+        default:    return "6+"
+        }
     }
 }
 
