@@ -28,6 +28,29 @@ enum DateUtils {
         return display.string(from: date)
     }
 
+    private static let dayParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+    private static let dayDisplay: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    /// An event day "2026-06-27" → "Today" / "Tomorrow" / "Sat, Jun 27" (device zone).
+    /// For the "go together" card's dated event.
+    static func friendlyEventDay(_ raw: String?) -> String? {
+        guard let raw, let date = dayParser.date(from: raw) else { return nil }
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInTomorrow(date) { return "Tomorrow" }
+        return dayDisplay.string(from: date)
+    }
+
     /// Coarse age of a stored item from its UTC `created_at` string, for
     /// content-free analytics (a young delete ≈ the extraction was wrong).
     /// "<1h" | "1-24h" | "1-7d" | "7d+"; "unknown" if the date can't be parsed.

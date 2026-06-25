@@ -287,7 +287,7 @@ enum DeckCard: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: TypeKey.self)
         let type = try c.decodeIfPresent(String.self, forKey: .type)
-        if let type, ["connection", "resurface", "reflection"].contains(type) {
+        if let type, ["connection", "resurface", "reflection", "together"].contains(type) {
             self = .other(try OtherCard(from: decoder))
         } else {
             self = .nudge(try NudgeCard(from: decoder))
@@ -333,7 +333,14 @@ struct OtherCard: Decodable, Sendable {
     let entityB: EntityRef?
     let citeA: [ConnectionCite]?
     let citeB: [ConnectionCite]?
+    // "Go together" cards (D143 Phase 3): a dated event ⨯ the person to bring.
+    let matchId: Int?              // ← match_id (act/dismiss target)
+    let why: String?              // grounded one-liner (the gate's reason)
+    let person: EntityRef?        // the matched person — the one we text
+    let event: TogetherEvent?     // the dated event (topic + date)
+    let citePerson: [ConnectionCite]?  // ← cite_person (the person's interest note)
 
+    var isTogether: Bool { type == "together" }
     /// The person side of a connection (if any) — the one we offer "text" on.
     var connectionPerson: EntityRef? {
         if entityA?.isPerson == true { return entityA }
@@ -342,6 +349,15 @@ struct OtherCard: Decodable, Sendable {
     }
     /// Both cited insights, each tagged with its entity, for rendering below the card.
     var connectionCites: [ConnectionCite] { (citeA ?? []) + (citeB ?? []) }
+}
+
+/// The dated event on a "go together" card (← `event`): topic + date.
+struct TogetherEvent: Decodable, Sendable {
+    let id: Int?
+    let text: String?
+    let date: String?          // YYYY-MM-DD
+    let eventType: String?     // ← event_type
+    let topic: String?
 }
 
 /// A cited insight on a connection card (← cite_a / cite_b): the note + which entity it's from.

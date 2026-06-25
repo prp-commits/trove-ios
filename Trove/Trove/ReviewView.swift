@@ -298,15 +298,19 @@ struct ReviewView: View {
 
     private func otherCard(_ o: OtherCard, item: Item) -> some View {
         let isConnection = o.type == "connection"
-        let person = o.connectionPerson
-        let cites = o.connectionCites
+        let isTogether = o.type == "together"
+        let person = isTogether ? o.person : o.connectionPerson
+        let cites = isTogether ? (o.citePerson ?? []) : o.connectionCites
+        let canText = person != nil && (isConnection || isTogether)
         return cardShell {
-            Text(o.type.capitalized.uppercased())
+            Text(isTogether ? "GO TOGETHER" : o.type.capitalized.uppercased())
                 .font(.troveMono(10, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
-            // Headline. For a connection with a person side, tapping it texts them
-            // (reuses the contact lookup/storage from the person nudges).
-            Button { if isConnection, person != nil { startMessage(item) } } label: {
-                Text(o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes")
+            // Headline. For a connection or "together" card with a person side, tapping
+            // it texts them (reuses the contact lookup/storage from the person nudges).
+            // The "together" headline is the gate's grounded "why" (the pitch).
+            Button { if canText { startMessage(item) } } label: {
+                Text(isTogether ? (o.why ?? "Go with \(person?.name ?? "them")?")
+                                : (o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes"))
                     .font(.troveSerif(21)).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -314,10 +318,22 @@ struct ReviewView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!(isConnection && person != nil))
+            .disabled(!canText)
 
-            // A connection shows BOTH sides; other cards show their one entity.
-            if isConnection, let a = o.entityA, let b = o.entityB {
+            // "Together": the person chip + the dated event (topic + when). A connection
+            // shows BOTH sides; other cards show their one entity.
+            if isTogether {
+                HStack(spacing: 8) {
+                    if let person { entityChip(person) }
+                    if let day = DateUtils.friendlyEventDay(o.event?.date) {
+                        Text("· \(day)").font(.troveMono(11, .medium)).foregroundStyle(Theme.gold)
+                    }
+                }
+                if let topic = o.event?.topic {
+                    Text(topic).font(.troveMono(11)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if isConnection, let a = o.entityA, let b = o.entityB {
                 HStack(spacing: 8) {
                     entityChip(a)
                     Text("×").font(.troveMono(11)).foregroundStyle(Theme.muted)
@@ -327,9 +343,9 @@ struct ReviewView: View {
                 entityChip(entity)
             }
 
-            // The cited insights from BOTH entities (connection) or the card's insights —
-            // same "evidence below the nudge" treatment as every other Review card.
-            if isConnection, !cites.isEmpty {
+            // The cited insight(s) — the person's interest note ("together") or both
+            // sides' notes (connection) — same "evidence below the nudge" treatment.
+            if (isConnection || isTogether), !cites.isEmpty {
                 Rectangle().fill(Theme.line).frame(height: 1)
                 ForEach(cites) { c in
                     VStack(alignment: .leading, spacing: 2) {
@@ -347,7 +363,7 @@ struct ReviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if isConnection, let p = person {
+            if canText, let p = person {
                 Text("Tap to text \(p.name)").font(.troveMono(11)).foregroundStyle(Theme.gold)
             }
             Spacer(minLength: 0)
@@ -397,7 +413,10 @@ struct ReviewView: View {
                 await session.swipe(entityId: n.entity.id, direction: direction,
                                     nudgeKind: n.pill.kind, eventType: n.pill.eventType)
             case .other(let o):
-                if let entity = o.entity {
+                if o.isTogether, let mid = o.matchId {
+                    // "Go together": right = act (planning to go), left = dismiss (tombstone).
+                    await session.eventMatchOutcome(matchId: mid, acted: direction == "right")
+                } else if let entity = o.entity {
                     await session.swipe(entityId: entity.id, direction: direction,
                                         nudgeKind: o.type, eventType: nil)
                 }
@@ -458,7 +477,7 @@ struct ReviewView: View {
     private func messagePerson(of item: Item) -> EntityRef? {
         switch item.card {
         case .nudge(let n): return n.entity.isPerson ? n.entity : nil
-        case .other(let o): return o.connectionPerson
+        case .other(let o): return o.isTogether ? o.person : o.connectionPerson
         }
     }
 
