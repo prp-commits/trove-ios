@@ -300,7 +300,8 @@ struct ReviewView: View {
         let isConnection = o.type == "connection"
         let isTogether = o.type == "together"
         let person = isTogether ? o.person : o.connectionPerson
-        let cites = isTogether ? (o.citePerson ?? []) : o.connectionCites
+        // "Together" shows evidence from BOTH sides: the event/topic's notes + the person's.
+        let cites = isTogether ? ((o.citeEvent ?? []) + (o.citePerson ?? [])) : o.connectionCites
         let canText = person != nil && (isConnection || isTogether)
         return cardShell {
             Text(isTogether ? "GO TOGETHER" : o.type.capitalized.uppercased())
@@ -323,15 +324,13 @@ struct ReviewView: View {
             // "Together": the person chip + the dated event (topic + when). A connection
             // shows BOTH sides; other cards show their one entity.
             if isTogether {
+                // Who + when. The event/topic context is carried by the cited notes below
+                // (each tagged with its entity), so no separate topic line is needed here.
                 HStack(spacing: 8) {
                     if let person { entityChip(person) }
                     if let day = DateUtils.friendlyEventDay(o.event?.date) {
                         Text("· \(day)").font(.troveMono(11, .medium)).foregroundStyle(Theme.gold)
                     }
-                }
-                if let topic = o.event?.topic {
-                    Text(topic).font(.troveMono(11)).foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else if isConnection, let a = o.entityA, let b = o.entityB {
                 HStack(spacing: 8) {
@@ -363,7 +362,9 @@ struct ReviewView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if canText, let p = person {
+            // Connection cards keep the affordance hint; the "together" card drops it
+            // (the tappable headline is enough once the user learns the pattern — user feedback).
+            if canText, !isTogether, let p = person {
                 Text("Tap to text \(p.name)").font(.troveMono(11)).foregroundStyle(Theme.gold)
             }
             Spacer(minLength: 0)

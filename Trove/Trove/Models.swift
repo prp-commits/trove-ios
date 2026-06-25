@@ -338,6 +338,7 @@ struct OtherCard: Decodable, Sendable {
     let why: String?              // grounded one-liner (the gate's reason)
     let person: EntityRef?        // the matched person — the one we text
     let event: TogetherEvent?     // the dated event (topic + date)
+    let citeEvent: [ConnectionCite]?   // ← cite_event (the event/topic's own notes)
     let citePerson: [ConnectionCite]?  // ← cite_person (the person's interest note)
 
     var isTogether: Bool { type == "together" }
