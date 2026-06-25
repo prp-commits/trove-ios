@@ -342,16 +342,6 @@ final class Session {
         }
     }
 
-    /// "Go together" card outcome (D143 Phase 3). Swipe right = act (you're planning
-    /// to go → suppresses the match); swipe left = dismiss (a permanent "not this
-    /// pairing" tombstone). Fire-and-forget + a feedback signal for the affinity loop.
-    func eventMatchOutcome(matchId: Int, acted: Bool) async {
-        let action = acted ? "act" : "dismiss"
-        _ = try? await api.request("/api/event-matches/\(matchId)/\(action)", .post) as OKResponse
-        Analytics.capture(acted ? "nudge_acted" : "nudge_dismissed",
-                          ["nudge_kind": "together", "event_type": "none"])
-    }
-
     /// Snooze a nudge for 1 / 3 / 7 days (suppresses the entity from the deck).
     func snooze(entityId: Int, days: Int, nudgeKind: String?, eventType: String?) async {
         struct Body: Encodable { let entityId: Int; let days: Int; let nudgeKind: String?; let eventType: String? }

@@ -355,6 +355,7 @@ struct OtherCard: Decodable, Sendable {
 /// The dated event on a "go together" card (← `event`): topic + date.
 struct TogetherEvent: Decodable, Sendable {
     let id: Int?
+    let topicId: Int?          // ← topic_id (the event's topic entity — snooze/affinity target)
     let text: String?
     let date: String?          // YYYY-MM-DD
     let eventType: String?     // ← event_type

@@ -414,9 +414,12 @@ struct ReviewView: View {
                 await session.swipe(entityId: n.entity.id, direction: direction,
                                     nudgeKind: n.pill.kind, eventType: n.pill.eventType)
             case .other(let o):
-                if o.isTogether, let mid = o.matchId {
-                    // "Go together": right = act (planning to go), left = dismiss (tombstone).
-                    await session.eventMatchOutcome(matchId: mid, acted: direction == "right")
+                // Swiping ONLY trains the affinity loop (which nudge KINDS the user wants) —
+                // it never resolves the card. For "together" that signal is recorded on the
+                // EVENT's topic (not the person), so a skip doesn't down-weight the person.
+                if o.isTogether, let tid = o.event?.topicId {
+                    await session.swipe(entityId: tid, direction: direction,
+                                        nudgeKind: "together", eventType: o.event?.eventType)
                 } else if let entity = o.entity {
                     await session.swipe(entityId: entity.id, direction: direction,
                                         nudgeKind: o.type, eventType: nil)
@@ -552,6 +555,16 @@ struct ReviewView: View {
     /// Pulse AND the deck via `acted_at`); otherwise log a catch-up (resets the decay
     /// clock). Returns the matching reversal for the Undo pill.
     private func doShowUp(_ item: Item) -> () -> Void {
+        // "Go together": showing up resolves the underlying EVENT (acted_at) — so it
+        // clears from BOTH the deck and Pulse, exactly like an event card's "Showed up".
+        if case .other(let o) = item.card, o.isTogether, let eid = o.event?.id {
+            Analytics.capture("nudge_acted", ["nudge_kind": "together",
+                                              "event_type": o.event?.eventType ?? "none",
+                                              "action": "showed_up"])
+            Analytics.noteValueMoment()
+            Task { try? await session.actEvent(eid) }
+            return { Task { try? await session.unactEvent(eid) } }
+        }
         guard case .nudge(let n) = item.card else { return {} }
         // The explicit "Showed up" act (button or message-sent) — the headline moat
         // signal. Distinct from a KEEP swipe (action:"kept").
@@ -573,6 +586,11 @@ struct ReviewView: View {
         if case .nudge(let n) = item.card {
             Task { await session.snooze(entityId: n.entity.id, days: days,
                                         nudgeKind: n.pill.kind, eventType: n.pill.eventType) }
+        } else if case .other(let o) = item.card, o.isTogether, let tid = o.event?.topicId {
+            // Snooze the EVENT (its topic), not the person — suppresses both the
+            // go-together card and the event's own upcoming card for `days`.
+            Task { await session.snooze(entityId: tid, days: days,
+                                        nudgeKind: "together", eventType: o.event?.eventType) }
         }
         advance()
     }
