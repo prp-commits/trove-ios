@@ -329,6 +329,7 @@ struct OtherCard: Decodable, Sendable {
     let relationship: String?
     let insights: [Insight]?
     // Connection cards (D74/D143): two entities + a cited insight from each side.
+    let linkId: Int?              // ← link_id (snooze/dismiss target)
     let entityA: EntityRef?
     let entityB: EntityRef?
     let citeA: [ConnectionCite]?

@@ -420,6 +420,12 @@ struct ReviewView: View {
                 if o.isTogether, let tid = o.event?.topicId {
                     await session.swipe(entityId: tid, direction: direction,
                                         nudgeKind: "together", eventType: o.event?.eventType)
+                } else if o.type == "connection", let a = o.entityA {
+                    // A connection has two entities — train on the canonical side (entity_a,
+                    // same key used for the connect impression / dismiss / snooze) with the
+                    // "connect" kind, so left/right trains the affinity loop like any nudge.
+                    await session.swipe(entityId: a.id, direction: direction,
+                                        nudgeKind: "connect", eventType: nil)
                 } else if let entity = o.entity {
                     await session.swipe(entityId: entity.id, direction: direction,
                                         nudgeKind: o.type, eventType: nil)
@@ -591,6 +597,11 @@ struct ReviewView: View {
             // go-together card and the event's own upcoming card for `days`.
             Task { await session.snooze(entityId: tid, days: days,
                                         nudgeKind: "together", eventType: o.event?.eventType) }
+        } else if case .other(let o) = item.card, o.type == "connection", let lid = o.linkId {
+            // Connection cards have no single entity — snooze the LINK so it actually
+            // drops for `days` (previously this branch was missing, so snooze no-op'd
+            // and the card returned on the next deck load).
+            Task { await session.snoozeConnection(linkId: lid, days: days) }
         }
         advance()
     }

@@ -352,6 +352,16 @@ final class Session {
         dataVersion += 1
     }
 
+    /// Snooze a connection card for 1 / 3 / 7 days (link-scoped, temporary — the link
+    /// returns when the window passes). Connection cards have no single entity, so they
+    /// snooze by link_id rather than via /api/review/snooze.
+    func snoozeConnection(linkId: Int, days: Int) async {
+        struct Body: Encodable { let days: Int }
+        _ = try? await api.request("/api/connections/\(linkId)/snooze", .post, body: Body(days: days)) as OKResponse
+        Analytics.capture("nudge_snoozed", ["nudge_kind": "connect", "event_type": "none", "days": days])
+        dataVersion += 1
+    }
+
     private func authenticate(_ op: @escaping () async throws -> AuthResponse) async {
         isWorking = true
         authError = nil
