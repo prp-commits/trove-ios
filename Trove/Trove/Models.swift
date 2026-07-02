@@ -227,7 +227,7 @@ struct VideoJob: Decodable, Identifiable, Sendable {
     let provider: String        // youtube | instagram | tiktok | video
     let status: String          // QUEUED | ONGOING | DONE | FAILED
     let sourceId: Int?
-    let error: String?
+    let reason: String?         // user-safe failure copy (server-sanitized; FAILED only)
     let createdAt: String?
 
     var isPending: Bool { status == "QUEUED" || status == "ONGOING" }

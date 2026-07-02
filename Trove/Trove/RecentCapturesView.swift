@@ -39,7 +39,7 @@ struct RecentCapturesView: View {
             statusIcon(job)
             VStack(alignment: .leading, spacing: 3) {
                 Text(job.providerLabel).font(.troveMono(13, .medium)).foregroundStyle(Theme.ink)
-                Text(statusLine(job)).font(.troveMono(10)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(statusLine(job)).font(.troveMono(10)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if job.isFailed {
@@ -63,7 +63,7 @@ struct RecentCapturesView: View {
 
     private func statusLine(_ job: VideoJob) -> String {
         if job.isPending { return "Summarizing…" }
-        if job.isFailed { return "Couldn't summarize — tap Retry" }
+        if job.isFailed { return job.reason ?? "Couldn't summarize — tap Retry" }
         return "Saved · \(DateUtils.friendly(job.createdAt) ?? "")"
     }
 

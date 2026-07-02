@@ -5,11 +5,18 @@ struct MainTabView: View {
     @Environment(Session.self) private var session
     @Environment(NotificationManager.self) private var notifications
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab = 0
     @State private var showNudgePriming = false
     @State private var showDeviceSyncPriming = false
     @AppStorage("hasPrimedNudges") private var hasPrimedNudges = false
     @AppStorage("hasPrimedDeviceSync") private var hasPrimedDeviceSync = false
+    // A shared video that failed to process surfaces as a one-time banner on open
+    // (a reel typically fails ~60s after sharing, while the app is backgrounded).
+    // `lastSeenFailedVideoJobId` dedups so a given failure is shown once.
+    @State private var failedVideo: VideoJob?
+    @State private var retryingFailedVideo = false
+    @AppStorage("lastSeenFailedVideoJobId") private var lastSeenFailedVideoJobId = 0
 
     var body: some View {
         TabView(selection: $tab) {
@@ -30,6 +37,20 @@ struct MainTabView: View {
                 .tag(3)
         }
         .tint(Theme.ink)
+        // Failed-video banner — shown on open for a video that couldn't be processed
+        // (mirrors the transactional failure push, but works on the current build
+        // without remote APNs). Dismiss or Retry; never re-shown for the same job.
+        .overlay(alignment: .top) {
+            if let job = failedVideo {
+                videoFailedBanner(job)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
+            }
+        }
+        .task { await checkFailedVideos() }                 // initial open
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await checkFailedVideos() } }   // every foreground
+        }
         // Push / right-time delivery (D115): prime BEFORE the system prompt. Only
         // show the warm explainer when status is undetermined and we haven't asked;
         // otherwise just (re)register — already-determined states never re-prompt.
@@ -79,9 +100,66 @@ struct MainTabView: View {
                 }
             )
         }
-        // Tapping a nudge notification routes to Review.
+        // Tapping a nudge notification routes to Review. A transactional video_failed
+        // push isn't a nudge — don't send it to Review (it just opens the app).
         .onChange(of: notifications.pendingDeepLink) { _, ref in
-            if ref != nil { tab = 1; notifications.pendingDeepLink = nil }
+            guard let ref else { return }
+            if !ref.hasPrefix("video_failed") { tab = 1 }
+            notifications.pendingDeepLink = nil
+        }
+    }
+
+    // MARK: failed-video banner
+
+    @ViewBuilder private func videoFailedBanner(_ job: VideoJob) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 15))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Couldn't save that \(job.providerLabel) video")
+                    .font(.troveMono(12, .medium)).foregroundStyle(Theme.ink)
+                Text(job.reason ?? "We couldn't process that video.")
+                    .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 16) {
+                    Button(retryingFailedVideo ? "Retrying…" : "Retry") { retryFailedVideo() }
+                        .disabled(retryingFailedVideo)
+                    Button("Dismiss") { ackFailedVideo() }
+                }
+                .font(.troveMono(11, .medium)).foregroundStyle(Theme.gold).padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+            Button { ackFailedVideo() } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line, lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        .padding(.horizontal, 16)
+    }
+
+    /// Look for the newest FAILED video job we haven't shown yet (jobs are newest-first).
+    private func checkFailedVideos() async {
+        guard let jobs = try? await session.loadVideoJobs() else { return }
+        if let f = jobs.first(where: { $0.isFailed && $0.id > lastSeenFailedVideoJobId }) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { failedVideo = f }
+        }
+    }
+
+    /// Mark the shown failure (and any older ones) as seen, and hide the banner.
+    private func ackFailedVideo() {
+        if let f = failedVideo { lastSeenFailedVideoJobId = max(lastSeenFailedVideoJobId, f.id) }
+        withAnimation { failedVideo = nil }
+    }
+
+    private func retryFailedVideo() {
+        guard let f = failedVideo else { return }
+        retryingFailedVideo = true
+        Task {
+            try? await session.retryVideo(url: f.url)
+            ackFailedVideo()
+            retryingFailedVideo = false
         }
     }
 
