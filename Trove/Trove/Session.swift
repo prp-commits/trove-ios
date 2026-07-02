@@ -32,12 +32,23 @@ final class Session {
         api = APIClient(tokenStore: tokens)
     }
 
+    /// Publish (or clear) the account the app considers active into the shared app
+    /// group, so the Share Extension can refuse to post under a stale account (D144).
+    /// Written on every session establishment — including launch validation, which
+    /// catches a switch that bypassed an explicit sign-in.
+    private static let appGroupDefaults = UserDefaults(suiteName: "group.ai.trovestore.Trove")
+    private func publishActiveAccount(_ id: Int?) {
+        if let id { Self.appGroupDefaults?.set(id, forKey: "activeAccountId") }
+        else { Self.appGroupDefaults?.removeObject(forKey: "activeAccountId") }
+    }
+
     /// On launch: if we have a stored session, validate it via /auth/me.
     func bootstrap() async {
-        guard tokens.hasSession else { state = .signedOut; return }
+        guard tokens.hasSession else { publishActiveAccount(nil); state = .signedOut; return }
         do {
             let me: MeResponse = try await api.request("/auth/me")
             state = .signedIn(me.user)
+            publishActiveAccount(me.user.id)   // authoritative: the token's real owner
             Analytics.identify(userId: me.user.id, provider: me.user.provider)
         } catch {
             state = .signedOut
@@ -82,6 +93,7 @@ final class Session {
             _ = try? await api.request("/auth/logout", .post, body: LogoutRequest(refreshToken: refresh)) as OKResponse
         }
         tokens.clear()
+        publishActiveAccount(nil)   // clear the extension's account guard (D144)
         authError = nil
         // Re-arm onboarding so a different account on this device gets the full
         // first-run + priming again (existing-account/already-connected states still
@@ -368,6 +380,7 @@ final class Session {
         do {
             let auth = try await op()
             tokens.save(access: auth.accessToken, refresh: auth.refreshToken)
+            publishActiveAccount(auth.user.id)   // keep the extension's account guard current (D144)
             // Clear any notifications left from a prior account before this one's
             // nudges get scheduled — covers the case where the previous session ended
             // via token expiry (which bypasses signOut).
