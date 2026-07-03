@@ -16,7 +16,6 @@ struct ProfileView: View {
     @State private var calDenied = false
     @AppStorage(DeviceSync.enabledKey) private var deviceSyncEnabled = false
     @AppStorage(DeviceSync.lastSyncKey) private var lastSyncAt = 0.0
-    @State private var videoCaptureOn = false
     @State private var showRecentCaptures = false
 
     var body: some View {
@@ -98,38 +97,30 @@ struct ProfileView: View {
             .padding(.horizontal, 20)
         }
         .background(Theme.bg)
-        .task { refreshCalState(); await loadVideoState() }
+        .task { refreshCalState() }
         .sheet(isPresented: $editing) { EditProfileView(user: user) }
         .sheet(isPresented: $showRecentCaptures) { NavigationStack { RecentCapturesView() } }
     }
 
-    // MARK: Video capture (D141)
+    // MARK: Recent captures (D141; D144 — video capture is on by default, no toggle)
 
     @ViewBuilder private var videoSection: some View {
         VStack(spacing: 10) {
-            Text("VIDEO CAPTURE").font(.troveMono(11)).foregroundStyle(Theme.muted)
+            Text("RECENT CAPTURES").font(.troveMono(11)).foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle(isOn: Binding(
-                get: { videoCaptureOn },
-                set: { on in videoCaptureOn = on; Task { try? await session.setVideoCapture(on) } }
-            )) {
-                Text("Save reels & videos").font(.troveMono(13)).foregroundStyle(Theme.ink)
-            }
-            .tint(Theme.gold)
-            Text("Share a reel, Short, or TikTok to Trove and it pulls out the useful details. The video link is sent to a third-party video provider to summarize it.")
+            // Video capture is on by default now — the copy still discloses the
+            // third-party summarizer (WayIn), matching /privacy + BETA_CONSENT.
+            Text("Share a reel, Short, or TikTok to Trove and it pulls out the useful details — automatically. The video link is sent to a third-party video provider to summarize it.")
                 .font(.troveMono(10)).foregroundStyle(Theme.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Recent captures") { showRecentCaptures = true }
+            Button("View recent captures") { showRecentCaptures = true }
                 .buttonStyle(PillButtonStyle(filled: false))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
         .frame(maxWidth: .infinity)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
-    }
-
-    private func loadVideoState() async {
-        if let conns = try? await session.loadConnections() { videoCaptureOn = conns.video ?? false }
     }
 
     // MARK: Connections (Phase C) — state-driven; sync is silent, control is Unsync.
