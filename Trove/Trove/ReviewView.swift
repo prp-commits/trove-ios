@@ -3,10 +3,24 @@ import MessageUI
 
 struct ReviewView: View {
     @Environment(Session.self) private var session
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var state: Loadable<[Item]> = .idle
     @State private var drag: CGSize = .zero
     @State private var sheet: ActiveSheet?
     @State private var showNoMessaging = false
+
+    // Reservation hand-off (RESERVATIONS_SPEC §6): the card we launched, awaiting the
+    // "did you book?" prompt when the user returns to the app. We never observe the
+    // booking — the outcome is user-asserted. We hold the whole Item so a confirmed
+    // booking can resolve that exact nudge (mark its event acted, pop the card).
+    @State private var pendingReservation: Item?
+    @State private var showReservationConfirm = false
+    private enum ReservationOutcome: String { case booked, notYet = "not_yet", declined }
+    private func pendingRestaurant() -> String? {
+        guard let item = pendingReservation, case .nudge(let n) = item.card else { return nil }
+        return n.reservation?.restaurant
+    }
 
     // The contact each person card will message, resolved once per entity so the
     // card can show *who* before you tap (a wrong guess is caught up front) and
@@ -159,6 +173,54 @@ struct ReviewView: View {
         } message: {
             Text("This device can't send texts (the Simulator can't). Try on a real device, or use Showed up.")
         }
+        // When the user comes back from the reservation app/site, ask what happened (§6).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active && pendingReservation != nil { showReservationConfirm = true }
+        }
+        // Trove-styled confirmation (not the system action sheet) — Monad palette, serif
+        // question, pill buttons that match Snooze / Showed up (@design: on-brand, not iOS-default).
+        .sheet(isPresented: $showReservationConfirm, onDismiss: { pendingReservation = nil }) {
+            reservationConfirmSheet()
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    @ViewBuilder
+    private func reservationConfirmSheet() -> some View {
+        let restaurant = pendingRestaurant() ?? "the restaurant"
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text("Did you book \(restaurant)?")
+                    .font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                Text("Only you can confirm — we don't see the booking.")
+                    .font(.troveMono(11)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
+            }
+            VStack(spacing: 10) {
+                Button { confirmReservation(.booked) } label: {
+                    Text("Yes, add it").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: true))
+                Button { confirmReservation(.notYet) } label: {
+                    Text("Not yet")
+                        .font(.troveMono(15, .medium)).foregroundStyle(Theme.ink)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14).padding(.horizontal, 22)
+                        .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                Button { confirmReservation(.declined) } label: {
+                    Text("Didn't book").font(.troveMono(13)).foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
     }
 
     private func actionLabel(_ text: String, system: String) -> some View {
@@ -275,6 +337,28 @@ struct ReviewView: View {
                     }
                     Spacer(minLength: 0)
                 }
+            }
+
+            // Reservation hand-off (§6) — a DISTINCT, quiet, outlined action, in the
+            // action cluster right under the headline (@design: stable, thumb-reliable
+            // spot, never stranded after the variable-length notes). Full-width so it
+            // reads as a card action, not a tag.
+            if let r = n.reservation {
+                Button { launchReservation(item) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "fork.knife")
+                        Text(r.label)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.troveMono(13, .medium))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.vertical, 11).padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
 
             HStack(spacing: 6) {
@@ -585,6 +669,60 @@ struct ReviewView: View {
             Task { try? await session.logContact(entityId: n.entity.id) }
             return { Task { try? await session.undoContact(entityId: n.entity.id) } }
         }
+    }
+
+    // MARK: reservation hand-off (RESERVATIONS_SPEC §6/§7)
+
+    /// Launch the reservation app/site and arm the return prompt. Universal/deep links
+    /// open the native app when installed, else Safari; web/maps actions open directly.
+    private func launchReservation(_ item: Item) {
+        guard case .nudge(let n) = item.card, let r = n.reservation, let url = URL(string: r.url) else { return }
+        Analytics.capture("reservation_tapped", ["platform": r.platform])
+        pendingReservation = item
+        openURL(url)
+    }
+
+    /// The user-asserted outcome (§6: never auto-write — only "Yes" acts). A confirmed
+    /// booking IS completing the card's ask ("confirm the reservation"), so we (a) write
+    /// the user_asserted insight — the proof it happened — and (b) RESOLVE the Review nudge
+    /// while KEEPING the event in Pulse (server sets booked_at, not acted_at). A lingering
+    /// "book a table" card after booking reads as dumb (the exact complaint). "Not yet" /
+    /// "Didn't book" leave the card — the ask still stands.
+    private func confirmReservation(_ outcome: ReservationOutcome) {
+        let item = pendingReservation
+        pendingReservation = nil
+        showReservationConfirm = false
+        guard let item, case .nudge(let n) = item.card, let r = n.reservation else { return }
+        Analytics.capture("reservation_outcome", ["outcome": outcome.rawValue, "platform": r.platform])
+        guard outcome == .booked else { return }
+        Analytics.noteValueMoment()
+        Task {
+            // Server writes the insight + sets booked_at, and hands back both ids for Undo.
+            let resp = try? await session.confirmReservation(entityId: n.entity.id, restaurant: r.restaurant,
+                                                             eventId: r.eventId, platform: r.platform, outcome: "booked")
+            await MainActor.run {
+                resolveBooking(item, eventId: resp?.bookedEventId ?? r.eventId, insightId: resp?.insightId)
+            }
+        }
+    }
+
+    /// Pop a booked card with Undo — mirrors `showedUp`, but the revert calls `unconfirm`
+    /// (clears booked_at + deletes the insight), never `unactEvent`, so the confirmed dinner
+    /// stays in Pulse the whole time.
+    private func resolveBooking(_ item: Item, eventId: Int?, insightId: Int?) {
+        Haptics.success()
+        let revert: () -> Void = {
+            Task { try? await session.unconfirmReservation(eventId: eventId, insightId: insightId) }
+        }
+        undoTask?.cancel()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            if case .loaded(var items) = state, !items.isEmpty {
+                items.removeFirst()
+                state = .loaded(items)
+            }
+            drag = .zero
+        }
+        offerUndo(item, revert: revert)
     }
 
     private func snooze(_ item: Item, _ days: Int) {

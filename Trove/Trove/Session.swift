@@ -236,6 +236,29 @@ final class Session {
         dataVersion += 1
     }
 
+    /// Record the user-asserted outcome of a reservation hand-off (RESERVATIONS_SPEC §6/§7).
+    /// On "booked" the server writes a user_asserted insight AND marks the event booked_at
+    /// (drops the Review nudge, keeps it in Pulse). Returns the ids so the caller can Undo.
+    @discardableResult
+    func confirmReservation(entityId: Int, restaurant: String, eventId: Int?,
+                            platform: String?, outcome: String) async throws -> ReservationConfirmResponse {
+        let res: ReservationConfirmResponse = try await api.request(
+            "/api/reservations/confirm", .post,
+            body: ReservationConfirmRequest(entityId: entityId, restaurant: restaurant,
+                                            outcome: outcome, platform: platform, eventId: eventId))
+        if outcome == "booked" { dataVersion += 1 }   // a new insight landed
+        return res
+    }
+
+    /// Undo a confirmed booking: clears booked_at (nudge returns to Review) and deletes the
+    /// insight the confirm wrote. Both ids come from the confirm response.
+    func unconfirmReservation(eventId: Int?, insightId: Int?) async throws {
+        let _: OKResponse = try await api.request(
+            "/api/reservations/unconfirm", .post,
+            body: ReservationUnconfirmRequest(eventId: eventId, insightId: insightId))
+        dataVersion += 1
+    }
+
     func deleteEntity(_ id: Int) async throws {
         let _: OKResponse = try await api.request("/api/entities/\(id)", .delete)
         dataVersion += 1

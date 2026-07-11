@@ -326,6 +326,9 @@ struct NudgeCard: Decodable, Sendable {
     let entity: EntityRef
     let insights: [Insight]
     let pill: Pill
+    // Restaurant reservation hand-off (RESERVATIONS_SPEC §5/§6). nil unless the server
+    // has RESERVATIONS_ENABLED — so in prod (flag off) the card decodes without a chip.
+    let reservation: Reservation?
 
     struct Pill: Decodable, Sendable {
         let text: String
@@ -335,6 +338,15 @@ struct NudgeCard: Decodable, Sendable {
         let eventId: Int?          // D130: in-window event to mark acted on "Showed up"
         let daysUntil: Int?
         let daysSince: Int?
+    }
+
+    struct Reservation: Decodable, Sendable {
+        let platform: String       // opentable | resy | sevenrooms | tock | web | maps
+        let action: String         // app | web | maps — how to open `url`
+        let url: String            // deep/universal link or web reservation page
+        let label: String          // "Reserve on OpenTable" / "Find a table"
+        let restaurant: String
+        let eventId: Int?
     }
 }
 
@@ -397,6 +409,31 @@ struct AddInsightRequest: Encodable, Sendable {
 
 struct TextRequest: Encodable, Sendable { let text: String }
 struct NameRequest: Encodable, Sendable { let name: String }
+
+/// POST /api/reservations/confirm — the user-asserted outcome of a reservation hand-off
+/// (RESERVATIONS_SPEC §6/§7). Keys are camelCase (the /api/* convention); server reads them.
+struct ReservationConfirmRequest: Encodable, Sendable {
+    let entityId: Int
+    let restaurant: String
+    let outcome: String        // "booked" | "not_yet" | "declined"
+    let platform: String?
+    let eventId: Int?
+}
+
+struct ReservationConfirmResponse: Decodable, Sendable {
+    let ok: Bool?
+    let insightId: Int?        // the user_asserted note we wrote — deleted on Undo
+    let bookedEventId: Int?    // the event we marked booked_at — cleared on Undo
+    let calendar: CalendarResult?
+    struct CalendarResult: Decodable, Sendable { let created: Bool? }
+}
+
+/// POST /api/reservations/unconfirm — Undo a booking: clears booked_at (the nudge returns)
+/// and deletes the insight it wrote.
+struct ReservationUnconfirmRequest: Encodable, Sendable {
+    let eventId: Int?
+    let insightId: Int?
+}
 
 /// PATCH /auth/me — edit name + avatar (D87). The encoder doesn't snake-case, so
 /// keys are mapped explicitly. `photoUrl` may be a `data:` URI (backend caps it).
