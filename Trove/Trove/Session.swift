@@ -285,10 +285,10 @@ final class Session {
         Analytics.capture("device_calendar_forgotten")
     }
 
-    // Pulse (M5)
-    func loadPulse() async throws -> [PulseItem] {
-        let res: HealthResponse = try await api.request("/api/relationships/health")
-        return res.items
+    // Pulse (M5) — returns the full response so the view gets both the tiles
+    // (`items`) and the "On the Horizon" lane (`horizon`, D149).
+    func loadPulse() async throws -> HealthResponse {
+        try await api.request("/api/relationships/health")
     }
 
     /// "Showed up" — marks an event acted (suppresses it in Pulse + the deck).

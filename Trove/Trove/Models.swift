@@ -245,6 +245,26 @@ struct IngestAck: Decodable, Sendable { let jobId: Int? }
 
 struct HealthResponse: Decodable, Sendable {
     let items: [PulseItem]
+    let horizon: [HorizonItem]?     // D149: events beyond their action window ("On the Horizon")
+}
+
+/// One "On the Horizon" row — an entity with a dated event beyond its action window.
+/// The server collapses to one row per entity (D149c): `moreCount` > 0 means the entity
+/// has several upcoming notes and this is a summary (tap through to see them all).
+struct HorizonItem: Decodable, Identifiable, Sendable {
+    let entityId: Int
+    let name: String
+    let type: String
+    let eventId: Int?
+    let eventType: String?
+    let eventDate: String?
+    let daysUntil: Int?
+    let insightText: String?
+    let unconfirmed: Bool?
+    let moreCount: Int?
+
+    var id: Int { entityId }
+    var isSummary: Bool { (moreCount ?? 0) > 0 }
 }
 
 struct PulseItem: Decodable, Identifiable, Sendable {

@@ -3,6 +3,7 @@ import SwiftUI
 struct PulseView: View {
     @Environment(Session.self) private var session
     @State private var state: Loadable<[PulseItem]> = .idle
+    @State private var horizon: [HorizonItem] = []      // "On the Horizon" (D149)
     @State private var confirming: ConfirmTarget?
 
     // An inferred-date event the user is confirming. "this week" has no real anchor,
@@ -66,6 +67,7 @@ struct PulseView: View {
                             .buttonStyle(.plain)
                             .disabled(bucketItems.isEmpty)
                         }
+                        horizonSection()
                     }
                 }
                 .padding(.horizontal, 20)
@@ -76,6 +78,17 @@ struct PulseView: View {
             .navigationDestination(for: Bucket.self) { bucket in
                 bucketList(bucket)
             }
+            // Declared at the root so BOTH horizon rows (here) and bucket-detail rows
+            // (pushed) resolve to it — one destination for the whole stack.
+            .navigationDestination(for: PulseTarget.self) { t in
+                EntityDetailView(entityId: t.id, name: t.name)
+            }
+        }
+        .sheet(item: $confirming) { target in
+            ConfirmDateSheet(name: target.name, initial: target.date) { picked in
+                confirming = nil
+                Task { try? await session.confirmEvent(target.id, date: Self.isoDay(picked)) }
+            } onCancel: { confirming = nil }
         }
         .task { if case .idle = state { await load() } }
         .onChange(of: session.dataVersion) { Task { await load() } }
@@ -112,6 +125,86 @@ struct PulseView: View {
         }
     }
 
+    // MARK: On the Horizon (D149)
+
+    // A read-only lane below the tiles: dated events beyond their action window. The
+    // server collapses to one row per entity (soonest-first, `+N more` summary). Not a
+    // nudge — no push, no deck, no impression.
+    @ViewBuilder
+    private func horizonSection() -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("On the horizon").font(.troveSerif(20)).foregroundStyle(Theme.ink)
+                Spacer()
+                Text("what's coming up").font(.troveMono(11)).foregroundStyle(Theme.muted)
+            }
+            .padding(.top, 10)
+
+            if horizon.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Nothing on the horizon yet.")
+                        .font(.troveMono(13, .medium)).foregroundStyle(Theme.ink)
+                    Text("Add a trip, a birthday, or plans with someone — it'll show up here.")
+                        .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.surface.opacity(0.4), in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18)
+                    .stroke(Theme.line, style: StrokeStyle(lineWidth: 1, dash: [4])))
+            } else {
+                ForEach(horizon) { horizonRow($0) }
+            }
+        }
+    }
+
+    private func horizonRow(_ item: HorizonItem) -> some View {
+        let tentative = item.unconfirmed == true && !item.isSummary   // Confirm only on a single tentative item
+        let tint = NudgeStyle.color(kind: nil, eventType: item.eventType)
+        return HStack(spacing: 12) {
+            NavigationLink(value: PulseTarget(id: item.entityId, name: item.name)) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(NudgeStyle.label(kind: nil, eventType: item.eventType))
+                            .font(.troveMono(10, .medium)).foregroundStyle(tint)
+                            .padding(.vertical, 3).padding(.horizontal, 9)
+                            .background(tint.opacity(0.14), in: Capsule())
+                        Spacer()
+                        Text((NudgeStyle.timing(daysUntil: item.daysUntil, daysSince: nil) ?? "") + (tentative ? " · ~" : ""))
+                            .font(.troveMono(11)).foregroundStyle(Theme.muted)
+                    }
+                    HStack(spacing: 8) {
+                        Text(item.name).font(.troveSerif(18)).foregroundStyle(Theme.ink)
+                        if let m = item.moreCount, m > 0 {
+                            Text("+\(m) more")
+                                .font(.troveMono(10, .medium)).foregroundStyle(Theme.muted)
+                                .padding(.vertical, 2).padding(.horizontal, 8)
+                                .background(Theme.bg, in: Capsule())
+                                .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                        }
+                    }
+                    if let note = item.insightText, !note.isEmpty {
+                        Text("“\(note)”").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                            .italic().lineLimit(2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if tentative, let eid = item.eventId {
+                compactButton("Confirm date") {
+                    Haptics.soft()
+                    confirming = ConfirmTarget(id: eid, name: item.name, date: prefillDate(item.eventDate))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
+    }
+
     // MARK: bucket detail
 
     private func bucketList(_ bucket: Bucket) -> some View {
@@ -133,15 +226,8 @@ struct PulseView: View {
         .background(Theme.bg)
         .navigationTitle(bucket.rawValue)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: PulseTarget.self) { t in
-            EntityDetailView(entityId: t.id, name: t.name)
-        }
-        .sheet(item: $confirming) { target in
-            ConfirmDateSheet(name: target.name, initial: target.date) { picked in
-                confirming = nil
-                Task { try? await session.confirmEvent(target.id, date: Self.isoDay(picked)) }
-            } onCancel: { confirming = nil }
-        }
+        // PulseTarget destination + the Confirm-date sheet are declared once at the root
+        // (see `body`) so they serve both the horizon lane and this pushed detail list.
     }
 
     /// Parse a "YYYY-MM-DD" anchor to prefill the picker; fall back to today when the
@@ -245,7 +331,11 @@ struct PulseView: View {
 
     private func load() async {
         state = .loading
-        do { state = .loaded(try await session.loadPulse()) }
+        do {
+            let resp = try await session.loadPulse()
+            horizon = resp.horizon ?? []
+            state = .loaded(resp.items)
+        }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
     }
 }
