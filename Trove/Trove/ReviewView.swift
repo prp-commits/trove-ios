@@ -17,9 +17,16 @@ struct ReviewView: View {
     @State private var pendingReservation: Item?
     @State private var showReservationConfirm = false
     private enum ReservationOutcome: String { case booked, notYet = "not_yet", declined }
+    // Reservation can live on a nudge card OR a go-together card (D156) — resolve both.
+    private func reservationOf(_ item: Item) -> NudgeCard.Reservation? {
+        switch item.card { case .nudge(let n): return n.reservation; case .other(let o): return o.reservation }
+    }
+    private func reservationEntityId(_ item: Item) -> Int? {
+        switch item.card { case .nudge(let n): return n.entity.id; case .other(let o): return o.person?.id }
+    }
     private func pendingRestaurant() -> String? {
-        guard let item = pendingReservation, case .nudge(let n) = item.card else { return nil }
-        return n.reservation?.restaurant
+        guard let item = pendingReservation else { return nil }
+        return reservationOf(item)?.restaurant
     }
 
     // The contact each person card will message, resolved once per entity so the
@@ -426,6 +433,26 @@ struct ReviewView: View {
                 entityChip(entity)
             }
 
+            // Reserve hand-off when the matched topic is a restaurant (D156) — same distinct,
+            // outlined action as the nudge card; server only sends it when a platform resolved.
+            if let r = o.reservation {
+                Button { launchReservation(item) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "fork.knife")
+                        Text(r.label)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.troveMono(13, .medium))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.vertical, 11).padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+
             // The cited insight(s) — the person's interest note ("together") or both
             // sides' notes (connection) — same "evidence below the nudge" treatment.
             if (isConnection || isTogether), !cites.isEmpty {
@@ -676,7 +703,7 @@ struct ReviewView: View {
     /// Launch the reservation app/site and arm the return prompt. Universal/deep links
     /// open the native app when installed, else Safari; web/maps actions open directly.
     private func launchReservation(_ item: Item) {
-        guard case .nudge(let n) = item.card, let r = n.reservation, let url = URL(string: r.url) else { return }
+        guard let r = reservationOf(item), let url = URL(string: r.url) else { return }
         Analytics.capture("reservation_tapped", ["platform": r.platform])
         pendingReservation = item
         openURL(url)
@@ -692,13 +719,13 @@ struct ReviewView: View {
         let item = pendingReservation
         pendingReservation = nil
         showReservationConfirm = false
-        guard let item, case .nudge(let n) = item.card, let r = n.reservation else { return }
+        guard let item, let r = reservationOf(item), let entityId = reservationEntityId(item) else { return }
         Analytics.capture("reservation_outcome", ["outcome": outcome.rawValue, "platform": r.platform])
         guard outcome == .booked else { return }
         Analytics.noteValueMoment()
         Task {
             // Server writes the insight + sets booked_at, and hands back both ids for Undo.
-            let resp = try? await session.confirmReservation(entityId: n.entity.id, restaurant: r.restaurant,
+            let resp = try? await session.confirmReservation(entityId: entityId, restaurant: r.restaurant,
                                                              eventId: r.eventId, platform: r.platform, outcome: "booked")
             await MainActor.run {
                 resolveBooking(item, eventId: resp?.bookedEventId ?? r.eventId, insightId: resp?.insightId)

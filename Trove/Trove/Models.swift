@@ -373,6 +373,7 @@ struct OtherCard: Decodable, Sendable {
     let event: TogetherEvent?     // the dated event (topic + date)
     let citeEvent: [ConnectionCite]?   // ← cite_event (the event/topic's own notes)
     let citePerson: [ConnectionCite]?  // ← cite_person (the person's interest note)
+    let reservation: NudgeCard.Reservation?  // (D156) Reserve hand-off when the matched topic is a restaurant
 
     var isTogether: Bool { type == "together" }
     /// The person side of a connection (if any) — the one we offer "text" on.
