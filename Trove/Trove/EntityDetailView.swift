@@ -35,9 +35,13 @@ struct EntityDetailView: View {
         return true
     }
 
+    // Top-right entity actions — Trove-styled sheet, not the system Menu dropdown.
+    // `afterEntityMenu` defers the chosen action to dismissal (no sheet-over-sheet).
+    @State private var showEntityMenu = false
+    @State private var afterEntityMenu: (() -> Void)?
+
     // Rename
     @State private var showRename = false
-    @State private var renameDraft = ""
     @State private var actionError: String?
 
     // Edit insight
@@ -97,27 +101,7 @@ struct EntityDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { renameDraft = titleName; showRename = true } label: {
-                        Label("Rename", systemImage: "pencil")
-                    }
-                    Button { showMerge = true } label: {
-                        Label("Merge into…", systemImage: "arrow.triangle.merge")
-                    }
-                    if isArchivedNow {
-                        Button { Task { await restore() } } label: {
-                            Label("Restore", systemImage: "tray.and.arrow.up")
-                        }
-                    } else {
-                        Button { Task { await archive() } } label: {
-                            Label("Archive", systemImage: "archivebox")
-                        }
-                    }
-                    Divider()
-                    Button(role: .destructive) { confirm = .deleteEntity } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                } label: {
+                Button { showEntityMenu = true } label: {
                     Image(systemName: "ellipsis.circle").tint(Theme.ink)
                 }
             }
@@ -136,10 +120,28 @@ struct EntityDetailView: View {
             MergePicker(sourceId: entityId, sourceName: titleName, sourceIsPerson: isPersonNow,
                         onMerged: { dismiss() })
         }
-        .alert("Rename", isPresented: $showRename) {
-            TextField("Name", text: $renameDraft)
-            Button("Save") { Task { await rename() } }
-            Button("Cancel", role: .cancel) {}
+        // Top-right entity actions — Trove-styled sheet, not the system Menu dropdown.
+        // Each action fires on dismissal so the next sheet never races this one.
+        .sheet(isPresented: $showEntityMenu,
+               onDismiss: { let go = afterEntityMenu; afterEntityMenu = nil; go?() }) {
+            EntityMenuSheet(
+                name: titleName,
+                isArchived: isArchivedNow,
+                onRename: { afterEntityMenu = { showRename = true }; showEntityMenu = false },
+                onMerge:  { afterEntityMenu = { showMerge = true }; showEntityMenu = false },
+                onArchiveToggle: {
+                    let archived = isArchivedNow
+                    afterEntityMenu = { Task { archived ? await restore() : await archive() } }
+                    showEntityMenu = false
+                },
+                onDelete: { afterEntityMenu = { confirm = .deleteEntity }; showEntityMenu = false })
+                .presentationDetents([.height(360)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showRename) {
+            RenameSheet(initial: titleName) { next in await rename(next) }
+                .presentationDetents([.height(240)])
+                .presentationDragIndicator(.visible)
         }
         .alert("Couldn't rename", isPresented: Binding(
             get: { actionError != nil },
@@ -283,8 +285,8 @@ struct EntityDetailView: View {
         await reload()
     }
 
-    private func rename() async {
-        let next = renameDraft.trimmingCharacters(in: .whitespaces)
+    private func rename(_ raw: String) async {
+        let next = raw.trimmingCharacters(in: .whitespaces)
         guard !next.isEmpty else { return }
         do {
             try await session.renameEntity(entityId, name: next)
@@ -446,6 +448,111 @@ private struct TroveConfirmSheet: View {
         .padding(24)
         .frame(maxWidth: .infinity)
         .background(Theme.bg)
+    }
+}
+
+/// Top-right entity actions (Rename / Merge / Archive / Delete), on-brand —
+/// replaces the system Menu dropdown so the surface matches the rest of Trove.
+private struct EntityMenuSheet: View {
+    let name: String
+    let isArchived: Bool
+    var onRename: () -> Void
+    var onMerge: () -> Void
+    var onArchiveToggle: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(name)
+                .font(.troveSerif(20)).foregroundStyle(Theme.ink)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+            VStack(spacing: 10) {
+                row("pencil", "Rename", action: onRename)
+                row("arrow.triangle.merge", "Merge into…", action: onMerge)
+                row(isArchived ? "tray.and.arrow.up" : "archivebox",
+                    isArchived ? "Restore" : "Archive", action: onArchiveToggle)
+                row("trash", "Delete", destructive: true, action: onDelete)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
+    }
+
+    private func row(_ icon: String, _ label: String, destructive: Bool = false,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 22)
+                Text(label)
+                Spacer()
+            }
+            .font(.troveMono(15, .medium))
+            .foregroundStyle(destructive ? Theme.danger : Theme.ink)
+            .padding(.vertical, 14).padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusField))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusField)
+                .stroke(destructive ? Theme.danger.opacity(0.4) : Theme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Trove-styled rename sheet — serif title, a Monad text field, pill Cancel/Save.
+/// Replaces the system `.alert` text prompt. Owns its own draft.
+private struct RenameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let initial: String
+    var onSave: (String) async -> Void
+    @State private var draft: String
+    @State private var saving = false
+    @FocusState private var focused: Bool
+
+    init(initial: String, onSave: @escaping (String) async -> Void) {
+        self.initial = initial
+        self.onSave = onSave
+        _draft = State(initialValue: initial)
+    }
+
+    private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Rename").font(.troveSerif(24)).foregroundStyle(Theme.ink)
+            TextField("Name", text: $draft)
+                .font(.troveMono(15)).foregroundStyle(Theme.ink)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focused)
+                .onSubmit(save)
+                .padding(14)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusField))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusField).stroke(Theme.line, lineWidth: 1))
+            HStack(spacing: 10) {
+                Button { dismiss() } label: { Text("Cancel").frame(maxWidth: .infinity) }
+                    .buttonStyle(PillButtonStyle(filled: false))
+                Button(action: save) { Text("Save").frame(maxWidth: .infinity) }
+                    .buttonStyle(PillButtonStyle(filled: true))
+                    .disabled(saving || trimmed.isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
+        .onAppear {
+            // FocusState in a freshly presented sheet needs a beat before the field exists.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
+        }
+    }
+
+    private func save() {
+        guard !trimmed.isEmpty, !saving else { return }
+        saving = true
+        Task { await onSave(draft); dismiss() }
     }
 }
 
