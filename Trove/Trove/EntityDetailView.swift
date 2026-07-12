@@ -8,12 +8,17 @@ struct EntityDetailView: View {
     @State private var state: Loadable<EntityDetail> = .idle
     @State private var showAdd = false
     @State private var working = false
-    @State private var showDelete = false
     @State private var showMerge = false
 
-    // Last-insight delete → cascades to the entity, so confirm.
-    @State private var pendingInsightDelete: Insight?
-    @State private var showInsightDelete = false
+    // Trove-styled destructive confirmation (delete entity / delete last note),
+    // presented as an on-brand sheet rather than the system confirmationDialog.
+    @State private var confirm: ConfirmKind?
+
+    // Long-press on a note opens a Trove-styled action sheet (Edit / Delete)
+    // instead of the system context menu. `afterMenu` defers the chosen action to
+    // the menu sheet's dismissal so we never present a sheet over a dismissing one.
+    @State private var menuFor: Insight?
+    @State private var afterMenu: (() -> Void)?
 
     private var isArchivedNow: Bool {
         if case .loaded(let d) = state { return d.isArchived }
@@ -66,8 +71,7 @@ struct EntityDetailView: View {
                     } else {
                         ForEach(detail.insights) { insight in
                             InsightRow(insight: insight,
-                                       onEdit: { editing = insight },
-                                       onDelete: { requestDelete(insight) })
+                                       onOpenMenu: { menuFor = insight })
                         }
                     }
                 }
@@ -110,7 +114,7 @@ struct EntityDetailView: View {
                         }
                     }
                     Divider()
-                    Button(role: .destructive) { showDelete = true } label: {
+                    Button(role: .destructive) { confirm = .deleteEntity } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 } label: {
@@ -145,20 +149,39 @@ struct EntityDetailView: View {
         } message: {
             Text(actionError ?? "")
         }
-        .confirmationDialog("Delete \(titleName)?", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await deleteEntity() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes \(titleName) and everything you've saved here.")
+        // Long-press note actions — Trove-styled sheet, not the system context menu.
+        // The chosen action fires on dismiss so edit/confirm never races the sheet.
+        .sheet(item: $menuFor, onDismiss: { let go = afterMenu; afterMenu = nil; go?() }) { insight in
+            InsightActionSheet(
+                preview: insight.text,
+                onEdit: { afterMenu = { editing = insight }; menuFor = nil },
+                onDelete: { afterMenu = { requestDelete(insight) }; menuFor = nil })
+                .presentationDetents([.height(250)])
+                .presentationDragIndicator(.visible)
         }
-        .confirmationDialog("Delete the only note?", isPresented: $showInsightDelete,
-                            titleVisibility: .visible, presenting: pendingInsightDelete) { ins in
-            Button("Delete note & \(titleName)", role: .destructive) {
-                Task { await deleteAndDismiss(ins) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("This is \(titleName)'s only note, so deleting it also removes \(titleName).")
+        // Destructive confirmation — Trove-styled sheet, not the system dialog.
+        .sheet(item: $confirm) { kind in
+            confirmSheet(kind)
+                .presentationDetents([.height(280)])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    @ViewBuilder
+    private func confirmSheet(_ kind: ConfirmKind) -> some View {
+        switch kind {
+        case .deleteEntity:
+            TroveConfirmSheet(
+                title: "Delete \(titleName)?",
+                message: "This removes \(titleName) and everything you've saved here.",
+                confirmLabel: "Delete \(titleName)",
+                onConfirm: { Task { await deleteEntity() } })
+        case .deleteLastNote(let ins):
+            TroveConfirmSheet(
+                title: "Delete the only note?",
+                message: "This is \(titleName)'s only note, so deleting it also removes \(titleName).",
+                confirmLabel: "Delete note & \(titleName)",
+                onConfirm: { Task { await deleteAndDismiss(ins) } })
         }
     }
 
@@ -230,8 +253,7 @@ struct EntityDetailView: View {
 
     private func requestDelete(_ insight: Insight) {
         if insightCount <= 1 {
-            pendingInsightDelete = insight
-            showInsightDelete = true       // confirm: this removes the entity too
+            confirm = .deleteLastNote(insight)   // confirm: this removes the entity too
         } else {
             Task { await delete(insight) }
         }
@@ -306,8 +328,7 @@ struct EntityDetailView: View {
 private struct InsightRow: View {
     @Environment(\.openURL) private var openURL
     let insight: Insight
-    var onEdit: () -> Void
-    var onDelete: () -> Void
+    var onOpenMenu: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -337,18 +358,94 @@ private struct InsightRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line, lineWidth: 1))
-        .contextMenu {
-            Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
-            Button(role: .destructive) { onDelete() } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
+        .contentShape(RoundedRectangle(cornerRadius: 18))
+        .onLongPressGesture(minimumDuration: 0.3) { Haptics.soft(); onOpenMenu() }
     }
 
     private var metaLine: String {
         [insight.sourceKind?.capitalized, DateUtils.friendly(insight.createdAt)]
             .compactMap { $0 }
             .joined(separator: " · ")
+    }
+}
+
+/// Which destructive confirmation the Trove-styled sheet is asking about.
+private enum ConfirmKind: Identifiable {
+    case deleteEntity
+    case deleteLastNote(Insight)
+    var id: String {
+        switch self {
+        case .deleteEntity:            return "entity"
+        case .deleteLastNote(let ins): return "note-\(ins.id)"
+        }
+    }
+}
+
+/// Long-press note actions, on-brand (Monad palette, mono voice, pill buttons) —
+/// replaces the system context menu so the surface matches the rest of Trove.
+private struct InsightActionSheet: View {
+    let preview: String
+    var onEdit: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text(preview)
+                .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                .lineLimit(2).truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+            VStack(spacing: 10) {
+                Button(action: onEdit) {
+                    Label("Edit note", systemImage: "pencil").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: false))
+                Button(action: onDelete) {
+                    Label("Delete note", systemImage: "trash").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: false, tint: Theme.danger))
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
+    }
+}
+
+/// Trove-styled destructive confirmation — serif question, muted subtext, a danger
+/// pill + a plain cancel. Mirrors the reservation confirm sheet (@design: on-brand,
+/// never the iOS-default action sheet / alert).
+private struct TroveConfirmSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let message: String
+    let confirmLabel: String
+    var onConfirm: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.troveMono(11)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
+            }
+            VStack(spacing: 10) {
+                Button { dismiss(); onConfirm() } label: {
+                    Text(confirmLabel).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: true, tint: Theme.danger))
+                Button { dismiss() } label: {
+                    Text("Cancel").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(filled: false))
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg)
     }
 }
 

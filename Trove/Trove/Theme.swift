@@ -44,17 +44,22 @@ extension Font {
 }
 
 /// Primary pill button (fully rounded). `filled` = accent fill; otherwise outlined.
+/// `tint` overrides the brand accent — pass `Theme.danger` for a destructive action
+/// so filled reads as a red fill and outlined as a red-bordered / red-text pill.
 struct PillButtonStyle: ButtonStyle {
     var filled = true
+    var tint: Color? = nil
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let fill = tint ?? Theme.accent
+        let stroke = tint ?? Theme.line
+        return configuration.label
             .font(.troveMono(15, .medium))
-            .foregroundStyle(filled ? Color.white : Theme.ink)
+            .foregroundStyle(filled ? Color.white : (tint ?? Theme.ink))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .padding(.horizontal, 22)
-            .background(filled ? Theme.accent : Color.clear, in: Capsule())
-            .overlay(Capsule().stroke(Theme.line, lineWidth: filled ? 0 : 1))
+            .background(filled ? fill : Color.clear, in: Capsule())
+            .overlay(Capsule().stroke(stroke, lineWidth: filled ? 0 : 1))
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
