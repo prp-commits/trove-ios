@@ -312,18 +312,23 @@ struct ReviewView: View {
                 }
                 Spacer()
             }
-            // Tap the suggestion → message the person (auto-tracks on send).
-            Button { if n.entity.isPerson { startMessage(item) } } label: {
-                Text(n.pill.text)
-                    .font(.troveSerif(22))
-                    .foregroundStyle(Theme.ink)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            // Tap the suggestion → message the person (auto-tracks on send). Topic
+            // cards have no message target, so the headline is plain Text — a disabled
+            // Button would dim the ink to grey (that greyed topic headlines; D157 follow-up).
+            let headline = Text(n.pill.text)
+                .font(.troveSerif(22))
+                .foregroundStyle(Theme.ink)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if n.entity.isPerson {
+                Button { startMessage(item) } label: {
+                    headline.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                headline
             }
-            .buttonStyle(.plain)
-            .disabled(!n.entity.isPerson)
 
             // One compact line: the contact we'll message + a quiet "Change" to
             // re-link. (The system composer can't report who you actually texted, so
