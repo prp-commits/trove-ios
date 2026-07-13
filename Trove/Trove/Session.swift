@@ -250,6 +250,15 @@ final class Session {
         return res
     }
 
+    /// Phase B: re-resolve a floored venue in the city the user picked ("their city or yours?").
+    /// Returns the freshly routed reservation (a native link or the Maps floor), or nil.
+    func resolveReservationCity(eventId: Int, city: String) async throws -> NudgeCard.Reservation? {
+        let res: ReservationResolveCityResponse = try await api.request(
+            "/api/reservations/resolve-city", .post,
+            body: ReservationResolveCityRequest(eventId: eventId, city: city))
+        return res.reservation
+    }
+
     /// Undo a confirmed booking: clears booked_at (nudge returns to Review) and deletes the
     /// insight the confirm wrote. Both ids come from the confirm response.
     func unconfirmReservation(eventId: Int?, insightId: Int?) async throws {

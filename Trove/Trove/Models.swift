@@ -347,6 +347,14 @@ struct NudgeCard: Decodable, Sendable {
         let label: String          // "Reserve on OpenTable" / "Find a table"
         let restaurant: String
         let eventId: Int?
+        // Phase B (D163): "their city or yours?" — distinct known cities to pick from when the
+        // venue would otherwise floor and the note named no city. nil/empty when unambiguous.
+        var cityOptions: [CityOption]? = nil
+
+        struct CityOption: Decodable, Sendable, Hashable {
+            let city: String       // the locality to re-resolve in
+            let why: String        // provenance, e.g. "where Michael lives" / "your area"
+        }
     }
 }
 
@@ -427,6 +435,16 @@ struct ReservationConfirmResponse: Decodable, Sendable {
     let bookedEventId: Int?    // the event we marked booked_at — cleared on Undo
     let calendar: CalendarResult?
     struct CalendarResult: Decodable, Sendable { let created: Bool? }
+}
+
+/// POST /api/reservations/resolve-city (D163, Phase B) — re-resolve a floored venue in a specific
+/// city the user picked from the "their city or yours?" clarification.
+struct ReservationResolveCityRequest: Encodable, Sendable {
+    let eventId: Int
+    let city: String
+}
+struct ReservationResolveCityResponse: Decodable, Sendable {
+    let reservation: NudgeCard.Reservation?   // the freshly routed action, or nil if still unresolved
 }
 
 /// POST /api/reservations/unconfirm — Undo a booking: clears booked_at (the nudge returns)

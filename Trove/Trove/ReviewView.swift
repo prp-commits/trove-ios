@@ -16,6 +16,7 @@ struct ReviewView: View {
     // booking can resolve that exact nudge (mark its event acted, pop the card).
     @State private var pendingReservation: Item?
     @State private var showReservationConfirm = false
+    @State private var resolvingCity = false   // D163: a city-clarification resolve is in flight
     private enum ReservationOutcome: String { case booked, notYet = "not_yet", declined }
     // Reservation can live on a nudge card OR a go-together card (D156) — resolve both.
     private func reservationOf(_ item: Item) -> NudgeCard.Reservation? {
@@ -371,6 +372,7 @@ struct ReviewView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
+                reserveCityOptions(r, item)
             }
 
             HStack(spacing: 6) {
@@ -456,6 +458,7 @@ struct ReviewView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
+                reserveCityOptions(r, item)   // no-op unless the server sent cityOptions
             }
 
             // The cited insight(s) — the person's interest note ("together") or both
@@ -712,6 +715,51 @@ struct ReviewView: View {
         Analytics.capture("reservation_tapped", ["platform": r.platform])
         pendingReservation = item
         openURL(url)
+    }
+
+    /// Phase B (D163): "their city or yours?" — a quiet, provenance-labeled choice shown only
+    /// when the venue would otherwise floor and the account knows ≥2 cities. Picking one re-resolves
+    /// the venue there (one Places call, server-cached) and hands off to the result.
+    @ViewBuilder
+    private func reserveCityOptions(_ r: NudgeCard.Reservation, _ item: Item) -> some View {
+        if let opts = r.cityOptions, !opts.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Which \(r.restaurant)?")
+                    .font(.troveMono(11)).foregroundStyle(Theme.muted)
+                HStack(spacing: 6) {
+                    ForEach(opts, id: \.self) { opt in
+                        Button { resolveCity(item, opt.city) } label: {
+                            (Text(opt.city).font(.troveMono(12, .medium)).foregroundColor(Theme.ink)
+                             + Text(" · \(opt.why)").font(.troveMono(11)).foregroundColor(Theme.muted))
+                                .lineLimit(1)
+                                .padding(.vertical, 7).padding(.horizontal, 12)
+                                .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(resolvingCity)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Re-resolve the venue in the picked city, then hand off to the freshly routed link.
+    private func resolveCity(_ item: Item, _ city: String) {
+        guard let r = reservationOf(item), let eventId = r.eventId, !resolvingCity else { return }
+        resolvingCity = true
+        Analytics.capture("reservation_resolve_city", [:])   // content-free: never log the city
+        Task {
+            let resolved = try? await session.resolveReservationCity(eventId: eventId, city: city)
+            await MainActor.run {
+                resolvingCity = false
+                guard let resolved, let url = URL(string: resolved.url) else { return }
+                pendingReservation = item   // arm the return-confirm (same restaurant + eventId)
+                openURL(url)
+            }
+        }
     }
 
     /// The user-asserted outcome (§6: never auto-write — only "Yes" acts). A confirmed
