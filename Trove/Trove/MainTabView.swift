@@ -17,6 +17,8 @@ struct MainTabView: View {
     @State private var failedVideo: VideoJob?
     @State private var retryingFailedVideo = false
     @AppStorage("lastSeenFailedVideoJobId") private var lastSeenFailedVideoJobId = 0
+    // D169: a tapped capture nudge opens the capture composer (not Review).
+    @State private var showCaptureFromPush = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -100,11 +102,24 @@ struct MainTabView: View {
                 }
             )
         }
-        // Tapping a nudge notification routes to Review. A transactional video_failed
-        // push isn't a nudge — don't send it to Review (it just opens the app).
+        // D169: a capture nudge opens the capture COMPOSER. Present it at tab-level so it opens from
+        // any tab; onDismiss clears the scenario tag.
+        .sheet(isPresented: $showCaptureFromPush, onDismiss: { notifications.pendingCaptureScenario = nil }) {
+            CaptureView(onIngested: {})   // ingest success emits capture_after_nudge via the tracker
+        }
+        // Tap routing. A capture nudge → the composer (+ capture_nudge_opened, and stamp the tap so
+        // the next ingest emits capture_after_nudge). A transactional video_failed push isn't a nudge
+        // (just opens the app). Everything else (moat nudges) → Review.
         .onChange(of: notifications.pendingDeepLink) { _, ref in
             guard let ref else { return }
-            if !ref.hasPrefix("video_failed") { tab = 1 }
+            if ref == "capture" {
+                let scenario = notifications.pendingCaptureScenario
+                Analytics.capture("capture_nudge_opened", ["scenario": scenario ?? "unknown"])
+                CaptureNudgeTracker.noteTap(scenario: scenario)
+                showCaptureFromPush = true
+            } else if !ref.hasPrefix("video_failed") {
+                tab = 1
+            }
             notifications.pendingDeepLink = nil
         }
     }

@@ -77,6 +77,10 @@ enum Analytics {
 
     /// One capture action happened — counts toward the >=3 threshold.
     static func noteCapture() {
+        // D169: if this capture followed a tapped capture nudge (within the window), attribute it
+        // (capture_after_nudge). Runs regardless of activation bookkeeping / opt-out (the emit
+        // itself respects opt-out); consumes the pending tap either way.
+        CaptureNudgeTracker.recordIfAfterNudge()
         guard !optedOut, let ck = aKey("captures") else { return }
         defaults.set(defaults.integer(forKey: ck) + 1, forKey: ck)
         checkActivation()

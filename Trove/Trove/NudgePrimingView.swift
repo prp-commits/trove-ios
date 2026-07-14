@@ -20,7 +20,7 @@ struct NudgePrimingView: View {
                     .font(.troveSerif(28))
                     .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
-                Text("Trove will quietly tap you on the shoulder — a birthday tomorrow, a friend you haven't spoken to in a while. Gentle, grounded in your own notes, never spam.")
+                Text("Trove will quietly tap you on the shoulder — a birthday tomorrow, a friend you haven't spoken to in a while, or an evening nudge to capture a moment worth keeping. Gentle, never spam.")
                     .font(.troveMono(13))
                     .foregroundStyle(Theme.ink2)
                     .multilineTextAlignment(.center)

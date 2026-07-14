@@ -18,6 +18,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Set to the tapped nudge's ref (or "review") so the UI can route to Review.
     var pendingDeepLink: String?
 
+    /// The capture-nudge scenario tag (D169), set alongside `pendingDeepLink == "capture"` so the
+    /// router can attribute `capture_nudge_opened`. nil for non-capture taps.
+    var pendingCaptureScenario: String?
+
     private weak var session: Session?
     private var configured = false
     private var pendingAPNsToken: String?   // may arrive before the session is wired
@@ -133,12 +137,17 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         [.banner, .list, .sound, .badge]
     }
 
-    // Tap → route to Review.
+    // Tap → route (Review, or the capture composer for a capture nudge — D169).
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let ref = response.notification.request.content.userInfo["nudge_ref"] as? String
-        await MainActor.run { self.pendingDeepLink = ref ?? "review" }
+        let info = response.notification.request.content.userInfo
+        let ref = info["nudge_ref"] as? String
+        let scenario = info["scenario"] as? String
+        await MainActor.run {
+            self.pendingCaptureScenario = (ref == "capture") ? scenario : nil
+            self.pendingDeepLink = ref ?? "review"   // set LAST — MainTabView routes off this change
+        }
     }
 }
