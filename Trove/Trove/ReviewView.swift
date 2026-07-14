@@ -404,20 +404,22 @@ struct ReviewView: View {
         return cardShell {
             Text(isTogether ? "GO TOGETHER" : o.type.capitalized.uppercased())
                 .font(.troveMono(10, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
-            // Headline. For a connection or "together" card with a person side, tapping
-            // it texts them (reuses the contact lookup/storage from the person nudges).
-            // The "together" headline is the gate's grounded "why" (the pitch).
-            Button { if canText { startMessage(item) } } label: {
-                Text(isTogether ? (o.why ?? "Go with \(person?.name ?? "them")?")
-                                : (o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes"))
-                    .font(.troveSerif(21)).foregroundStyle(Theme.ink)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            // Headline. For a connection or "together" card WITH a person side, tapping it
+            // texts them (reuses the contact lookup/storage from the person nudges). When there's
+            // no person to text (e.g. a topic×topic connection), it's plain Text — a disabled
+            // Button would dim the ink to grey (the greyed-headline bug; D157 follow-up).
+            let headline = Text(isTogether ? (o.why ?? "Go with \(person?.name ?? "them")?")
+                                           : (o.recap ?? o.prompt ?? o.relationship ?? "A thread in your notes"))
+                .font(.troveSerif(21)).foregroundStyle(Theme.ink)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if canText {
+                Button { startMessage(item) } label: { headline.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+            } else {
+                headline
             }
-            .buttonStyle(.plain)
-            .disabled(!canText)
 
             // "Together": the person chip + the dated event (topic + when). A connection
             // shows BOTH sides; other cards show their one entity.
