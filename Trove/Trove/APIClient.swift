@@ -74,6 +74,10 @@ actor APIClient {
     private func send(path: String, method: HTTPMethod, body: Data?, authorized: Bool, isRetry: Bool) async throws -> Data {
         guard let url = URL(string: Config.baseURL + path) else { throw APIError.invalidURL }
         var req = URLRequest(url: url)
+        // API responses are personalized + time-sensitive (the Review deck resolves reservations,
+        // day-relative nudges). Never serve them from the on-disk URLCache — that surfaced a stale
+        // deck across force-quits (a resolved restaurant kept its old city). Always fetch fresh.
+        req.cachePolicy = .reloadIgnoringLocalCacheData
         req.httpMethod = method.rawValue
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
