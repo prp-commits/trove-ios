@@ -112,6 +112,15 @@ struct MainTabView: View {
         // (just opens the app). Everything else (moat nudges) → Review.
         .onChange(of: notifications.pendingDeepLink) { _, ref in
             guard let ref else { return }
+            // Unified tap/open signal for every real nudge — the open-rate numerator (nudge_shown is
+            // the deck-side denominator). Content-free: nudge_ref is "<kind>:<id>" (db.js), so we send
+            // ONLY the kind prefix ("together"/"reconnect"/"connect"/"capture") and drop the id.
+            // video_failed is transactional, not a nudge, so it's excluded. A capture tap fires this
+            // AND capture_nudge_opened (which adds the scenario dimension).
+            if !ref.hasPrefix("video_failed") {
+                let kind = ref.split(separator: ":").first.map(String.init) ?? ref
+                Analytics.capture("nudge_opened", ["nudge_kind": kind])
+            }
             if ref == "capture" {
                 let scenario = notifications.pendingCaptureScenario
                 Analytics.capture("capture_nudge_opened", ["scenario": scenario ?? "unknown"])
