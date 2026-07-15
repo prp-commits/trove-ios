@@ -1,5 +1,6 @@
 import SwiftUI
 import MessageUI
+import UIKit
 
 struct ReviewView: View {
     @Environment(Session.self) private var session
@@ -23,7 +24,7 @@ struct ReviewView: View {
         switch item.card { case .nudge(let n): return n.reservation; case .other(let o): return o.reservation }
     }
     private func reservationEntityId(_ item: Item) -> Int? {
-        switch item.card { case .nudge(let n): return n.entity.id; case .other(let o): return o.person?.id }
+        switch item.card { case .nudge(let n): return n.entity.id; case .other(let o): return o.person?.id ?? o.entity?.id }
     }
     private func pendingRestaurant() -> String? {
         guard let item = pendingReservation else { return nil }
@@ -359,7 +360,7 @@ struct ReviewView: View {
             if let r = n.reservation {
                 Button { launchReservation(item) } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "fork.knife")
+                        Image(systemName: r.iconName)
                         Text(r.label)
                         Spacer(minLength: 0)
                         Image(systemName: "arrow.up.right")
@@ -447,7 +448,7 @@ struct ReviewView: View {
             if let r = o.reservation {
                 Button { launchReservation(item) } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "fork.knife")
+                        Image(systemName: r.iconName)
                         Text(r.label)
                         Spacer(minLength: 0)
                         Image(systemName: "arrow.up.right")
@@ -716,7 +717,11 @@ struct ReviewView: View {
         guard let r = reservationOf(item), let url = URL(string: r.url) else { return }
         Analytics.capture("reservation_tapped", ["platform": r.platform])
         pendingReservation = item
-        openURL(url)
+        // D180: prefer the native app (Ticketmaster / OpenTable / Resy) via its universal link — open
+        // the URL in the installed app if one claims it; only fall back to the browser if none does.
+        UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { opened in
+            if !opened { openURL(url) }
+        }
     }
 
     /// Phase B (D163): "their city or yours?" — a quiet, provenance-labeled choice shown only
