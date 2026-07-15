@@ -344,9 +344,21 @@ struct NudgeCard: Decodable, Sendable {
         let platform: String       // opentable | resy | sevenrooms | tock | web | maps
         let action: String         // app | web | maps — how to open `url`
         let url: String            // deep/universal link or web reservation page
-        let label: String          // "Reserve on OpenTable" / "Find a table"
+        let label: String          // "Reserve on OpenTable" / "Find a table" / "Find tickets"
         let restaurant: String
         let eventId: Int?
+        // D178: "event" = a ticketed-outing venue (concert/comedy/museum/sports) → a ticket icon.
+        // Phase 4 (D188): "movie" = a film → a clapperboard. nil/"dining" = a restaurant (default).
+        var kind: String? = nil
+        var isEvent: Bool { kind == "event" }
+        var isMovie: Bool { kind == "movie" }
+        var iconName: String {
+            switch kind {
+            case "movie": return "movieclapper" // Phase 4 (D188): a film → "Find showtimes"
+            case "event": return "ticket"        // D178: concert/comedy/museum/sports
+            default:      return "fork.knife"    // dining / nil
+            }
+        }
         // Phase B (D163): "their city or yours?" — distinct known cities to pick from when the
         // venue would otherwise floor and the note named no city. nil/empty when unambiguous.
         var cityOptions: [CityOption]? = nil
