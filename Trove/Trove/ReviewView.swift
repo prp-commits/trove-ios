@@ -20,16 +20,26 @@ struct ReviewView: View {
     @State private var resolvingCity = false   // D163: a city-clarification resolve is in flight
     private enum ReservationOutcome: String { case booked, notYet = "not_yet", declined }
     // Reservation can live on a nudge card OR a go-together card (D156) — resolve both.
-    private func reservationOf(_ item: Item) -> NudgeCard.Reservation? {
-        switch item.card { case .nudge(let n): return n.reservation; case .other(let o): return o.reservation }
+    /// Every action on the card (D206 `actions[]`, falling back to the legacy singular field).
+    private func actionsOf(_ item: Item) -> [NudgeCard.Reservation] {
+        switch item.card { case .nudge(let n): return n.actionList; case .other(let o): return o.actionList }
     }
+    /// The FIRST action — for paths that legitimately act on the primary one (city re-resolve).
+    private func reservationOf(_ item: Item) -> NudgeCard.Reservation? { actionsOf(item).first }
     private func reservationEntityId(_ item: Item) -> Int? {
         switch item.card { case .nudge(let n): return n.entity.id; case .other(let o): return o.person?.id ?? o.entity?.id }
     }
-    private func pendingRestaurant() -> String? {
-        guard let item = pendingReservation else { return nil }
-        return reservationOf(item)?.restaurant
+    /// The action the user actually tapped — NOT actions[0]. With a row of chips those differ, and
+    /// asking "did you book {the first action's name}?" after tapping the second would be wrong.
+    @State private var pendingAction: NudgeCard.Reservation?
+
+    /// The `note` action's target — the composer opens pinned to this entity so the recap reply
+    /// lands on the right person/place rather than being re-filed by extraction.
+    struct NoteTarget: Identifiable {
+        let entityId: Int; let name: String; let item: Item
+        var id: Int { entityId }
     }
+    @State private var noteTarget: NoteTarget?
 
     // The contact each person card will message, resolved once per entity so the
     // card can show *who* before you tap (a wrong guess is caught up front) and
@@ -184,11 +194,28 @@ struct ReviewView: View {
         }
         // When the user comes back from the reservation app/site, ask what happened (§6).
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active && pendingReservation != nil { showReservationConfirm = true }
+            // (step 4) Only a LINK-OUT earns the return prompt. An in-app action (the note
+            // composer) never leaves the app, so re-activating is not "coming back" from anything.
+            if phase == .active, pendingReservation != nil, pendingAction?.isInApp != true {
+                showReservationConfirm = true
+            }
         }
         // Trove-styled confirmation (not the system action sheet) — Monad palette, serif
         // question, pill buttons that match Snooze / Showed up (@design: on-brand, not iOS-default).
-        .sheet(isPresented: $showReservationConfirm, onDismiss: { pendingReservation = nil }) {
+        // (step 4) The `note` chip → the composer, pinned to the card's entity. `pinnedEntity`
+        // already existed for the manual "add note to this entity" path, so the recap write-back
+        // needed a target, not a new screen.
+        .sheet(item: $noteTarget) { target in
+            CaptureView(onIngested: {
+                // Writing the note IS the answer to "How was Kismet?" — treat it as acting on the
+                // nudge, the same as "Showed up", so the card clears and the loop closes.
+                Analytics.capture("nudge_acted", ["nudge_kind": "recap", "action": "note"])
+                Analytics.noteValueMoment()
+                noteTarget = nil
+                showedUp(target.item)
+            }, pinnedEntity: (id: target.entityId, name: target.name))
+        }
+        .sheet(isPresented: $showReservationConfirm, onDismiss: { pendingReservation = nil; pendingAction = nil }) {
             reservationConfirmSheet()
                 .presentationDetents([.height(300)])
                 .presentationDragIndicator(.visible)
@@ -197,10 +224,15 @@ struct ReviewView: View {
 
     @ViewBuilder
     private func reservationConfirmSheet() -> some View {
-        let restaurant = pendingRestaurant() ?? "the restaurant"
+        // §4 item 8: the question follows the KIND of thing the user tapped. Asking "did you book?"
+        // after a ticket tap — which every kind got before — was simply the wrong question, and the
+        // copy now comes off the action itself rather than being hardcoded to dining.
+        let tapped = pendingAction
+        let question = tapped?.outcomeQuestion ?? "Did you book the restaurant?"
+        let affirmative = tapped?.outcomeAffirmative ?? "Yes, add it"
         VStack(spacing: 20) {
             VStack(spacing: 8) {
-                Text("Did you book \(restaurant)?")
+                Text(question)
                     .font(.troveSerif(24)).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
                 Text("Only you can confirm — we don't see the booking.")
@@ -209,7 +241,7 @@ struct ReviewView: View {
             }
             VStack(spacing: 10) {
                 Button { confirmReservation(.booked) } label: {
-                    Text("Yes, add it").frame(maxWidth: .infinity)
+                    Text(affirmative).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PillButtonStyle(filled: true))
                 Button { confirmReservation(.notYet) } label: {
@@ -357,24 +389,7 @@ struct ReviewView: View {
             // action cluster right under the headline (@design: stable, thumb-reliable
             // spot, never stranded after the variable-length notes). Full-width so it
             // reads as a card action, not a tag.
-            if let r = n.reservation {
-                Button { launchReservation(item) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: r.iconName)
-                        Text(r.label)
-                        Spacer(minLength: 0)
-                        Image(systemName: "arrow.up.right")
-                    }
-                    .font(.troveMono(13, .medium))
-                    .foregroundStyle(Theme.ink)
-                    .padding(.vertical, 11).padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-                reserveCityOptions(r, item)
-            }
+            actionChips(n.actionList, item)
 
             HStack(spacing: 6) {
                 TypeChip(isPerson: n.entity.isPerson)
@@ -445,24 +460,7 @@ struct ReviewView: View {
 
             // Reserve hand-off when the matched topic is a restaurant (D156) — same distinct,
             // outlined action as the nudge card; server only sends it when a platform resolved.
-            if let r = o.reservation {
-                Button { launchReservation(item) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: r.iconName)
-                        Text(r.label)
-                        Spacer(minLength: 0)
-                        Image(systemName: "arrow.up.right")
-                    }
-                    .font(.troveMono(13, .medium))
-                    .foregroundStyle(Theme.ink)
-                    .padding(.vertical, 11).padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-                reserveCityOptions(r, item)   // no-op unless the server sent cityOptions
-            }
+            actionChips(o.actionList, item)
 
             // The cited insight(s) — the person's interest note ("together") or both
             // sides' notes (connection) — same "evidence below the nudge" treatment.
@@ -713,14 +711,81 @@ struct ReviewView: View {
 
     /// Launch the reservation app/site and arm the return prompt. Universal/deep links
     /// open the native app when installed, else Safari; web/maps actions open directly.
-    private func launchReservation(_ item: Item) {
-        guard let r = reservationOf(item), let url = URL(string: r.url) else { return }
-        Analytics.capture("reservation_tapped", ["platform": r.platform])
+    private func launchReservation(_ item: Item, _ r: NudgeCard.Reservation) {
+        guard let url = URL(string: r.url) else { return }
+        Analytics.capture("reservation_tapped", ["platform": r.platform, "kind": r.kind ?? "dining"])
         pendingReservation = item
+        pendingAction = r
         // D180: prefer the native app (Ticketmaster / OpenTable / Resy) via its universal link — open
         // the URL in the installed app if one claims it; only fall back to the browser if none does.
         UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { opened in
             if !opened { openURL(url) }
+        }
+    }
+
+    // MARK: action chips (Foundry Phase 2 step 4 — one renderer, a list of actions)
+
+    /// The card's actions. Was TWO byte-identical copies of this block (nudge card and go-together
+    /// card) — which is exactly the drift §4 item 7 called out, and it had to go before the single
+    /// chip became a row. Now one renderer, driven by `actionList`, so a Phase 3 concert offering
+    /// tickets **and** calendar needs no new view code.
+    ///
+    /// Layout: full-width rows stacked, not a horizontal scroller. @design's original reasoning for
+    /// the single chip holds for N — a stable, thumb-reliable target in the action cluster beats a
+    /// row of small ones the user has to aim at, and today N is almost always 1.
+    @ViewBuilder
+    private func actionChips(_ actions: [NudgeCard.Reservation], _ item: Item) -> some View {
+        if !actions.isEmpty {
+            VStack(spacing: 6) {
+                ForEach(Array(actions.enumerated()), id: \.offset) { _, r in
+                    Button { activate(r, item) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: r.iconName)
+                            Text(r.label)
+                            Spacer(minLength: 0)
+                            // An in-app action (the note composer) isn't a hand-off — the
+                            // leaving-the-app arrow would promise something that doesn't happen.
+                            Image(systemName: r.isInApp ? "chevron.right" : "arrow.up.right")
+                        }
+                        .font(.troveMono(13, .medium))
+                        .foregroundStyle(Theme.ink)
+                        .padding(.vertical, 11).padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    reserveCityOptions(r, item)   // no-op unless the server sent cityOptions
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// Route one action by kind. A link-out hands off to the app/browser and arms the return
+    /// prompt; an in-app action does neither.
+    private func activate(_ r: NudgeCard.Reservation, _ item: Item) {
+        if r.isNote { startNote(r, item) } else { launchReservation(item, r) }
+    }
+
+    /// The `note` action — the chip that finally answers the D199 recap card. "How was Kismet?" has
+    /// been asking a question the user had no way to answer *from the card* since it shipped; this
+    /// opens the composer pinned to the card's entity, so the reply lands as a note on the right
+    /// person or place instead of being re-filed by extraction.
+    ///
+    /// No return prompt and no `pendingReservation`: nothing was handed off, so there is nothing to
+    /// come back from. The write itself is the outcome, and `onIngested` records it.
+    private func startNote(_ r: NudgeCard.Reservation, _ item: Item) {
+        guard let entityId = reservationEntityId(item) else { return }
+        let name = entityName(item) ?? r.displayTitle
+        Analytics.capture("nudge_action_tapped", ["kind": "note"])
+        noteTarget = NoteTarget(entityId: entityId, name: name, item: item)
+    }
+
+    /// The card's subject, for pinning the note to the right entity.
+    private func entityName(_ item: Item) -> String? {
+        switch item.card {
+        case .nudge(let n): return n.entity.name
+        case .other(let o): return o.person?.name ?? o.entity?.name
         }
     }
 
@@ -731,7 +796,7 @@ struct ReviewView: View {
     private func reserveCityOptions(_ r: NudgeCard.Reservation, _ item: Item) -> some View {
         if let opts = r.cityOptions, !opts.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Which \(r.restaurant)?")
+                Text("Which \(r.displayTitle)?")   // D206: title, with the legacy restaurant fallback
                     .font(.troveMono(11)).foregroundStyle(Theme.muted)
                 HStack(spacing: 6) {
                     ForEach(opts, id: \.self) { opt in
@@ -777,15 +842,18 @@ struct ReviewView: View {
     /// "Didn't book" leave the card — the ask still stands.
     private func confirmReservation(_ outcome: ReservationOutcome) {
         let item = pendingReservation
+        let tapped = pendingAction
         pendingReservation = nil
+        pendingAction = nil
         showReservationConfirm = false
-        guard let item, let r = reservationOf(item), let entityId = reservationEntityId(item) else { return }
-        Analytics.capture("reservation_outcome", ["outcome": outcome.rawValue, "platform": r.platform])
+        guard let item, let r = tapped ?? reservationOf(item), let entityId = reservationEntityId(item) else { return }
+        Analytics.capture("reservation_outcome", ["outcome": outcome.rawValue, "platform": r.platform,
+                                                  "kind": r.kind ?? "dining"])
         guard outcome == .booked else { return }
         Analytics.noteValueMoment()
         Task {
             // Server writes the insight + sets booked_at, and hands back both ids for Undo.
-            let resp = try? await session.confirmReservation(entityId: entityId, restaurant: r.restaurant,
+            let resp = try? await session.confirmReservation(entityId: entityId, restaurant: r.displayTitle,
                                                              eventId: r.eventId, platform: r.platform, outcome: "booked")
             await MainActor.run {
                 resolveBooking(item, eventId: resp?.bookedEventId ?? r.eventId, insightId: resp?.insightId)

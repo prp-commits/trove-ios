@@ -328,7 +328,19 @@ struct NudgeCard: Decodable, Sendable {
     let pill: Pill
     // Restaurant reservation hand-off (RESERVATIONS_SPEC §5/§6). nil unless the server
     // has RESERVATIONS_ENABLED — so in prod (flag off) the card decodes without a chip.
+    //
+    // (D206 server / build 1.0 (8) client) `reservation` is the LEGACY singular field; the server
+    // now also sends `actions[]` and dual-writes `reservation = actions[0]`. Read `actions` and fall
+    // back, so this build works against a server on either side of D206 — and so the server can drop
+    // the singular field at BUILD_FLOOR without a second client release.
     let reservation: Reservation?
+    let actions: [Reservation]?
+    /// Every action to offer, newest contract first. One element today; a concert becomes
+    /// tickets + calendar in Phase 3, which is the whole reason the list exists.
+    var actionList: [Reservation] {
+        if let a = actions, !a.isEmpty { return a }
+        return reservation.map { [$0] } ?? []
+    }
 
     struct Pill: Decodable, Sendable {
         let text: String
@@ -345,20 +357,57 @@ struct NudgeCard: Decodable, Sendable {
         let action: String         // app | web | maps — how to open `url`
         let url: String            // deep/universal link or web reservation page
         let label: String          // "Reserve on OpenTable" / "Find a table" / "Find tickets"
-        let restaurant: String
+        // (D206) `restaurant` is the legacy name field — it has always also carried film titles and
+        // artist names. The server now dual-writes `title` with the same value; prefer it, and keep
+        // the fallback so this build still renders against a pre-D206 server.
+        let restaurant: String?
+        let title: String?
+        /// The display name, whichever key the server used. Never empty — falls back to the kind.
+        var displayTitle: String { title ?? restaurant ?? kindNoun }
         let eventId: Int?
         // D178: "event" = a ticketed-outing venue (concert/comedy/museum/sports) → a ticket icon.
-        // Phase 4 (D188): "movie" = a film → a clapperboard. nil/"dining" = a restaurant (default).
+        // Phase 4 (D188): "movie" = a film → a clapperboard. D205: the server now always sets this,
+        // including "dining"; nil only from a pre-D205 server, and means dining.
         var kind: String? = nil
         var isEvent: Bool { kind == "event" }
         var isMovie: Bool { kind == "movie" }
+        var isNote: Bool { kind == "note" }
         var iconName: String {
             switch kind {
             case "movie": return "movieclapper" // Phase 4 (D188): a film → "Find showtimes"
             case "event": return "ticket"        // D178: concert/comedy/museum/sports
+            case "note":  return "square.and.pencil"  // (D208) the recap write-back
             default:      return "fork.knife"    // dining / nil
             }
         }
+        /// What this action is *about*, for copy that has to name it generically.
+        var kindNoun: String {
+            switch kind {
+            case "movie": return "the film"
+            case "event": return "the event"
+            case "note":  return "this"
+            default:      return "the restaurant"
+            }
+        }
+        /// The return-prompt question, per kind (§4 item 8). Asking "did you book?" after a ticket
+        /// tap — which is what every kind got before — was simply the wrong question.
+        var outcomeQuestion: String {
+            switch kind {
+            case "movie": return "Did you get tickets to \(displayTitle)?"
+            case "event": return "Did you get tickets to \(displayTitle)?"
+            default:      return "Did you book \(displayTitle)?"
+            }
+        }
+        /// The affirmative button, per kind. "Yes, add it" reads oddly for a showtime.
+        var outcomeAffirmative: String {
+            switch kind {
+            case "movie", "event": return "Yes, I'm going"
+            default:               return "Yes, add it"
+            }
+        }
+        /// An action the user completes in-app (the note composer) rather than by leaving for a
+        /// browser — so it must never arm the "did you book?" return prompt.
+        var isInApp: Bool { isNote }
         // Phase B (D163): "their city or yours?" — distinct known cities to pick from when the
         // venue would otherwise floor and the note named no city. nil/empty when unambiguous.
         var cityOptions: [CityOption]? = nil
@@ -394,6 +443,12 @@ struct OtherCard: Decodable, Sendable {
     let citeEvent: [ConnectionCite]?   // ← cite_event (the event/topic's own notes)
     let citePerson: [ConnectionCite]?  // ← cite_person (the person's interest note)
     let reservation: NudgeCard.Reservation?  // (D156) Reserve hand-off when the matched topic is a restaurant
+    let actions: [NudgeCard.Reservation]?    // (D206) the list form; `reservation` is actions[0]
+    /// Same precedence as NudgeCard: prefer the list, fall back to the singular field.
+    var actionList: [NudgeCard.Reservation] {
+        if let a = actions, !a.isEmpty { return a }
+        return reservation.map { [$0] } ?? []
+    }
 
     var isTogether: Bool { type == "together" }
     /// The person side of a connection (if any) — the one we offer "text" on.

@@ -71,6 +71,14 @@ actor APIClient {
         catch { throw APIError.decoding(error) }
     }
 
+    /// The build number as a plain integer string, read once. Empty-string fallback rather than a
+    /// placeholder like "0" or "unknown": the server ignores junk, and a *missing* header is honest
+    /// (it lands in the `unknown` bucket) where a fake number would be a lie the release gate reads.
+    private static let buildNumber: String = {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+    }()
+
     private func send(path: String, method: HTTPMethod, body: Data?, authorized: Bool, isRetry: Bool) async throws -> Data {
         guard let url = URL(string: Config.baseURL + path) else { throw APIError.invalidURL }
         var req = URLRequest(url: url)
@@ -81,6 +89,12 @@ actor APIClient {
         req.httpMethod = method.rawValue
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
+        // (D207) The build number, so the server can answer "is any active client still below
+        // BUILD_FLOOR?" before it deletes a dual-written field (NUDGE_FOUNDRY_SPEC §4.1). Without
+        // this the gate is a guess, and guessing wrong blanks a chip on someone's phone.
+        // CFBundleVersion = CURRENT_PROJECT_VERSION — the monotonic one. Deliberately NOT
+        // CFBundleShortVersionString, which sits at "1.0" across many builds.
+        req.setValue(Self.buildNumber, forHTTPHeaderField: "X-App-Build")
         if authorized, let token = tokenStore.accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
