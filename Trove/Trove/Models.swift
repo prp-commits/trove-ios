@@ -372,11 +372,14 @@ struct NudgeCard: Decodable, Sendable {
         var isEvent: Bool { kind == "event" }
         var isMovie: Bool { kind == "movie" }
         var isNote: Bool { kind == "note" }
+        // (D219) the gift chip: a real web link-out to an Amazon search built from a captured hint.
+        var isShop: Bool { kind == "shop" }
         var iconName: String {
             switch kind {
             case "movie": return "movieclapper" // Phase 4 (D188): a film → "Find showtimes"
             case "event": return "ticket"        // D178: concert/comedy/museum/sports
             case "note":  return "square.and.pencil"  // (D208) the recap write-back
+            case "shop":  return "gift"          // (D219) a gift hint → an Amazon search
             default:      return "fork.knife"    // dining / nil
             }
         }
@@ -386,6 +389,7 @@ struct NudgeCard: Decodable, Sendable {
             case "movie": return "the film"
             case "event": return "the event"
             case "note":  return "this"
+            case "shop":  return "the gift"
             default:      return "the restaurant"
             }
         }
@@ -395,6 +399,8 @@ struct NudgeCard: Decodable, Sendable {
             switch kind {
             case "movie": return "Did you get tickets to \(displayTitle)?"
             case "event": return "Did you get tickets to \(displayTitle)?"
+            // (D219) A gift is got, not booked. displayTitle is the item itself ("cast-iron pan").
+            case "shop":  return "Did you get \(displayTitle)?"
             default:      return "Did you book \(displayTitle)?"
             }
         }
@@ -402,11 +408,14 @@ struct NudgeCard: Decodable, Sendable {
         var outcomeAffirmative: String {
             switch kind {
             case "movie", "event": return "Yes, I'm going"
+            case "shop":           return "Yes, I got it"
             default:               return "Yes, add it"
             }
         }
         /// An action the user completes in-app (the note composer) rather than by leaving for a
         /// browser — so it must never arm the "did you book?" return prompt.
+        /// `shop` is deliberately NOT in-app — it really does leave for Amazon, so both the
+        /// hand-off arrow and the return prompt are correct for it.
         var isInApp: Bool { isNote }
         // Phase B (D163): "their city or yours?" — distinct known cities to pick from when the
         // venue would otherwise floor and the note named no city. nil/empty when unambiguous.
