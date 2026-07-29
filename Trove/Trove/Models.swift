@@ -412,6 +412,24 @@ struct NudgeCard: Decodable, Sendable {
             default:               return "Yes, add it"
             }
         }
+        /// (D222) The reassurance line. D206 made the question and the affirmative per-kind but
+        /// left this and the decline hardcoded to dining — so a TICKET tap has always said "we
+        /// don't see the booking" too. The gift chip only made an existing gap visible.
+        var outcomeSubtitle: String {
+            switch kind {
+            case "movie", "event": return "Only you can confirm — we don't see your tickets."
+            case "shop":           return "Only you can confirm — we don't see your orders."
+            default:               return "Only you can confirm — we don't see the booking."
+            }
+        }
+        /// The decline option. "Didn't book" is wrong for anything you don't book.
+        var outcomeDecline: String {
+            switch kind {
+            case "movie", "event": return "Didn't get tickets"
+            case "shop":           return "Didn't get it"
+            default:               return "Didn't book"
+            }
+        }
         /// An action the user completes in-app (the note composer) rather than by leaving for a
         /// browser — so it must never arm the "did you book?" return prompt.
         /// `shop` is deliberately NOT in-app — it really does leave for Amazon, so both the

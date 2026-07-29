@@ -230,12 +230,14 @@ struct ReviewView: View {
         let tapped = pendingAction
         let question = tapped?.outcomeQuestion ?? "Did you book the restaurant?"
         let affirmative = tapped?.outcomeAffirmative ?? "Yes, add it"
+        let subtitle = tapped?.outcomeSubtitle ?? "Only you can confirm — we don't see the booking."
+        let decline = tapped?.outcomeDecline ?? "Didn't book"
         VStack(spacing: 20) {
             VStack(spacing: 8) {
                 Text(question)
                     .font(.troveSerif(24)).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
-                Text("Only you can confirm — we don't see the booking.")
+                Text(subtitle)
                     .font(.troveMono(11)).foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
             }
@@ -253,7 +255,7 @@ struct ReviewView: View {
                 }
                 .buttonStyle(.plain)
                 Button { confirmReservation(.declined) } label: {
-                    Text("Didn't book").font(.troveMono(13)).foregroundStyle(Theme.muted)
+                    Text(decline).font(.troveMono(13)).foregroundStyle(Theme.muted)
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
@@ -839,7 +841,8 @@ struct ReviewView: View {
     /// the user_asserted insight — the proof it happened — and (b) RESOLVE the Review nudge
     /// while KEEPING the event in Pulse (server sets booked_at, not acted_at). A lingering
     /// "book a table" card after booking reads as dumb (the exact complaint). "Not yet" /
-    /// "Didn't book" leave the card — the ask still stands.
+    /// the decline option leave the card — the ask still stands. (D222: that decline is per-kind
+    /// now; "Didn't book" was wrong for a gift and for a ticket.)
     private func confirmReservation(_ outcome: ReservationOutcome) {
         let item = pendingReservation
         let tapped = pendingAction
