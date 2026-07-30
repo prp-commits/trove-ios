@@ -112,14 +112,17 @@ struct AskView: View {
         let active = entities.filter { !$0.isArchived }
         let people = active.filter { $0.isPerson }.sorted { ($0.insightCount ?? 0) > ($1.insightCount ?? 0) }
         let topics = active.filter { !$0.isPerson }.sorted { ($0.insightCount ?? 0) > ($1.insightCount ?? 0) }
+        // Three DISTINCT question shapes, each on a distinct person/topic where the library allows
+        // — so no two prompts read "What do I know about {person}?" (owner note), and a cold library
+        // with a single person still yields two grounded starters.
+        let p0 = people.first
+        let p1 = people.count > 1 ? people[1] : nil
+        let t0 = topics.first
         var out: [String] = []
-        if let p = people.first {
-            out.append("What do I know about \(p.name)?")
-            out.append("When did I last see \(p.name)?")
-        }
-        if people.count > 1 { out.append("What do I know about \(people[1].name)?") }
-        if let t = topics.first { out.append("What have I saved about \(t.name)?") }
-        suggestions = Array(out.prefix(4))
+        if let p0 { out.append("What do I know about \(p0.name)?") }
+        if let seen = p1 ?? p0 { out.append("When did I last see \(seen.name)?") }
+        if let saved = t0 ?? p1 { out.append("What have I saved about \(saved.name)?") }
+        suggestions = Array(out.prefix(3))
     }
 
     private func askSuggestion(_ text: String) async {
