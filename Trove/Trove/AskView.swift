@@ -9,6 +9,11 @@ struct AskView: View {
     @State private var question = ""
     @State private var phase: Phase = .idle
     @FocusState private var focused: Bool
+    // (D224) Tappable starter questions, seeded from the user's OWN entities so every one is
+    // grounded and answerable — the HAX caution: never suggest what Ask can't answer from their
+    // notes. An empty box is the classic undiscoverable-NL-feature failure; a real name in a real
+    // question is the fix.
+    @State private var suggestions: [String] = []
 
     enum Phase {
         case idle, working, answered(AskResponse), error(String)
@@ -24,9 +29,7 @@ struct AskView: View {
 
                     switch phase {
                     case .idle:
-                        Text("Ask anything about the people and topics you've saved — “When did I last see Addie?”, “Who's into watches?”")
-                            .font(.troveMono(12)).foregroundStyle(Theme.muted)
-                            .padding(.top, 4)
+                        idle
                     case .working:
                         HStack(spacing: 10) {
                             ProgressView().tint(Theme.ink)
@@ -60,7 +63,69 @@ struct AskView: View {
                 }
             }
         }
-        .onAppear { focused = true }
+        // (D224) NO auto-focus. Raising the keyboard on open shoved the example questions off
+        // screen at the exact moment they teach the feature. Let the suggestions sit visible;
+        // the user focuses the field by tapping it or a chip.
+        .task {
+            Analytics.capture("ask_opened")
+            await loadSuggestions()
+        }
+    }
+
+    // MARK: idle — the teaching surface (D224)
+
+    @ViewBuilder private var idle: some View {
+        if suggestions.isEmpty {
+            Text("Ask anything about the people and topics you've saved — grounded in your own notes, and always cited back to them.")
+                .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                .padding(.top, 4)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TRY ASKING")
+                    .font(.troveMono(10, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
+                ForEach(suggestions, id: \.self) { s in
+                    Button { Task { await askSuggestion(s) } } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Theme.gold)
+                            Text(s).font(.troveMono(13)).foregroundStyle(Theme.ink)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 0)
+                            Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        }
+                        .padding(.vertical, 11).padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    /// Build up to four starters from the user's real entities, most-noted first. Every one is a
+    /// question about something that EXISTS in their library, so Ask can always ground an answer —
+    /// no generic "who has a birthday coming up?" that might return "I don't see that."
+    private func loadSuggestions() async {
+        guard let entities = try? await session.loadEntities() else { return }
+        let active = entities.filter { !$0.isArchived }
+        let people = active.filter { $0.isPerson }.sorted { ($0.insightCount ?? 0) > ($1.insightCount ?? 0) }
+        let topics = active.filter { !$0.isPerson }.sorted { ($0.insightCount ?? 0) > ($1.insightCount ?? 0) }
+        var out: [String] = []
+        if let p = people.first {
+            out.append("What do I know about \(p.name)?")
+            out.append("When did I last see \(p.name)?")
+        }
+        if people.count > 1 { out.append("What do I know about \(people[1].name)?") }
+        if let t = topics.first { out.append("What have I saved about \(t.name)?") }
+        suggestions = Array(out.prefix(4))
+    }
+
+    private func askSuggestion(_ text: String) async {
+        Analytics.capture("ask_suggestion_tapped")
+        question = text
+        await ask()
     }
 
     private var askField: some View {

@@ -21,7 +21,21 @@ struct MainTabView: View {
     @State private var showCaptureFromPush = false
 
     var body: some View {
-        TabView(selection: $tab) {
+        TabView(selection: Binding(
+            get: { tab },
+            set: { newTab in
+                // (D224) The funnel was blind to which tabs anyone visits — no way to tell if
+                // Pulse is ever opened, or whether Review gets reached other than via a push
+                // deep-link. Content-free: the tab index only. Fires on real changes, not the
+                // initial paint.
+                if newTab != tab {
+                    let names = ["library", "review", "pulse", "profile"]
+                    let name = names.indices.contains(newTab) ? names[newTab] : "unknown"
+                    Analytics.capture("tab_selected", ["tab": name])
+                }
+                tab = newTab
+            }
+        )) {
             LibraryView()
                 .tabItem { Label("Library", systemImage: "square.stack") }
                 .tag(0)

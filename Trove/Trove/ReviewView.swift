@@ -63,6 +63,12 @@ struct ReviewView: View {
     // so restoring the card is fully honest — no server effect to reverse).
     @State private var undo: Undoable?
     @State private var undoTask: Task<Void, Never>?
+    // (D224) Distinguishes the two empty decks that look identical but mean opposite things:
+    // a NEWCOMER who has never had a nudge vs. someone who CLEARED their deck. Flips true the
+    // first time a non-empty deck ever loads, and never back — so the warm "all caught up" is
+    // only ever shown to someone who earned it.
+    @AppStorage("hasSeenDeckCards") private var hasSeenDeckCards = false
+    @State private var showCapture = false
 
     struct Item: Identifiable { let id = UUID(); let card: DeckCard }
     // A reversible action on a card: `revert` undoes the server-side effect; the card
@@ -89,10 +95,30 @@ struct ReviewView: View {
                 case .loaded(let items):
                     if items.isEmpty {
                         centered {
-                            VStack(spacing: 8) {
-                                Text("You're all caught up ✦").font(.troveSerif(22)).foregroundStyle(Theme.ink)
-                                Text("New nudges arrive as dates approach and friends go quiet.")
-                                    .font(.troveMono(12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                            if hasSeenDeckCards {
+                                // Earned empty — they cleared the deck.
+                                VStack(spacing: 8) {
+                                    Text("You're all caught up ✦").font(.troveSerif(22)).foregroundStyle(Theme.ink)
+                                    Text("New nudges arrive as dates approach and friends go quiet.")
+                                        .font(.troveMono(12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                                }
+                            } else {
+                                // Cold-start empty — say what Review IS, and offer the one action
+                                // that makes cards appear (Day One's "seed the action", not sample
+                                // data). "All caught up" to someone who's never had a card is a
+                                // false accomplishment that teaches nothing.
+                                VStack(spacing: 14) {
+                                    Text("This is where people\ncome back to you.")
+                                        .font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                                        .multilineTextAlignment(.center)
+                                    Text("When a birthday's close or someone goes quiet, they'll show up here to act on. Save a few people and Trove takes it from there.")
+                                        .font(.troveMono(12)).foregroundStyle(Theme.muted)
+                                        .multilineTextAlignment(.center).lineSpacing(2)
+                                        .padding(.horizontal, 8)
+                                    Button("Save someone") { showCapture = true }
+                                        .buttonStyle(PillButtonStyle(filled: true))
+                                        .padding(.top, 2)
+                                }
                             }
                         }
                     } else {
@@ -205,6 +231,11 @@ struct ReviewView: View {
         // (step 4) The `note` chip → the composer, pinned to the card's entity. `pinnedEntity`
         // already existed for the manual "add note to this entity" path, so the recap write-back
         // needed a target, not a new screen.
+        // (D224) The cold-start empty state's "Save someone" starter — reuses the standard
+        // composer, then reloads so a fresh capture can immediately produce a card.
+        .sheet(isPresented: $showCapture) {
+            CaptureView(onIngested: { Task { await load() } })
+        }
         .sheet(item: $noteTarget) { target in
             CaptureView(onIngested: {
                 // Writing the note IS the answer to "How was Kismet?" — treat it as acting on the
@@ -919,6 +950,7 @@ struct ReviewView: View {
         state = .loading
         do {
             let cards = try await session.loadDeck()
+            if !cards.isEmpty { hasSeenDeckCards = true }   // (D224) never show the newcomer empty again
             state = .loaded(cards.map { Item(card: $0) })
         } catch {
             state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription)
