@@ -11,6 +11,13 @@ struct MainTabView: View {
     @State private var showDeviceSyncPriming = false
     @AppStorage("hasPrimedNudges") private var hasPrimedNudges = false
     @AppStorage("hasPrimedDeviceSync") private var hasPrimedDeviceSync = false
+    // (D227) The one-time "there's something in Pulse" dot. Review gets discovered contextually
+    // (push nudges deep-link to it); Pulse had no such moment. Shown once Review's deck has had
+    // cards — the honest proxy for "Pulse has actionable content", set in ReviewView (D224) and
+    // shared via @AppStorage — and cleared FOREVER on the first Pulse visit. No modal, no tour.
+    @AppStorage("hasSeenDeckCards") private var hasSeenDeckCards = false
+    @AppStorage("hasVisitedPulse") private var hasVisitedPulse = false
+    private var pulseBadge: Bool { hasSeenDeckCards && !hasVisitedPulse }
     // A shared video that failed to process surfaces as a one-time banner on open
     // (a reel typically fails ~60s after sharing, while the app is backgrounded).
     // `lastSeenFailedVideoJobId` dedups so a given failure is shown once.
@@ -32,6 +39,12 @@ struct MainTabView: View {
                     let names = ["library", "review", "pulse", "profile"]
                     let name = names.indices.contains(newTab) ? names[newTab] : "unknown"
                     Analytics.capture("tab_selected", ["tab": name])
+                    // (D227) First visit to Pulse retires the badge. If it was showing, record the
+                    // conversion so we can tell whether the dot actually drove the visit.
+                    if newTab == 2 {
+                        if pulseBadge { Analytics.capture("pulse_badge_tapped") }
+                        hasVisitedPulse = true
+                    }
                 }
                 tab = newTab
             }
@@ -46,6 +59,7 @@ struct MainTabView: View {
 
             PulseView()
                 .tabItem { Label("Pulse", systemImage: "waveform.path.ecg") }
+                .badge(pulseBadge ? " " : nil)   // (D227) native dot; empty string collapses to a dot
                 .tag(2)
 
             ProfileView(user: user)
