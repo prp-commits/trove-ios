@@ -82,14 +82,22 @@ struct LibraryView: View {
                     .font(.troveSerif(34))
                     .foregroundStyle(Theme.ink)
                 Spacer()
+                // (D223) Was a bare `sparkles` circle — the one entry point to grounded Q&A over
+                // your own notes, with no word on it. An unlabeled AI glyph is the exact pattern
+                // that tests at ~zero unaided discovery (NN/g Rufus), and Ask sits inside the beta
+                // activation metric. Give it the word.
                 Button { showAsk = true } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                        .frame(width: 40, height: 40)
-                        .background(Theme.surface, in: Circle())
-                        .overlay(Circle().stroke(Theme.line, lineWidth: 1))
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles").font(.system(size: 15, weight: .semibold))
+                        Text("Ask").font(.troveMono(15, .medium))
+                    }
+                    .foregroundStyle(Theme.ink)
+                    .frame(height: 40)
+                    .padding(.horizontal, 16)
+                    .background(Theme.surface, in: Capsule())
+                    .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
                 }
+                .accessibilityLabel("Ask your notes")
                 Button { showCapture = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))
