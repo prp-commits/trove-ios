@@ -8,6 +8,20 @@ struct LibraryView: View {
     @State private var showAsk = false
     @State private var scope: Scope = .all
     @FocusState private var searchFocused: Bool
+    // (D226) One-time attention on the Ask pill — Ask is the feature testers never find, so the
+    // first time there's something to ask about, the button pulses. Cleared forever on first tap
+    // (this replaces the D225 inline first-run demo, which felt gimmicky answering right under the
+    // note). NN/g's endorsed pattern: an unobtrusive highlight on the real control at first
+    // encounter, not a modal tour.
+    @AppStorage("hasTappedAsk") private var hasTappedAsk = false
+    @State private var askGlow = false
+
+    /// Highlight only when there's a reason to — a non-empty library — and only until first tap.
+    private var askNeedsHighlight: Bool {
+        if hasTappedAsk { return false }
+        if case .loaded(let entities) = state { return !entities.isEmpty }
+        return false
+    }
 
     enum Scope: String, CaseIterable, Identifiable {
         case all = "All", people = "People", topics = "Topics", archived = "Archived"
@@ -86,18 +100,26 @@ struct LibraryView: View {
                 // your own notes, with no word on it. An unlabeled AI glyph is the exact pattern
                 // that tests at ~zero unaided discovery (NN/g Rufus), and Ask sits inside the beta
                 // activation metric. Give it the word.
-                Button { showAsk = true } label: {
+                Button {
+                    hasTappedAsk = true   // (D226) first tap retires the highlight forever
+                    showAsk = true
+                } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "sparkles").font(.system(size: 15, weight: .semibold))
                         Text("Ask").font(.troveMono(15, .medium))
                     }
-                    .foregroundStyle(Theme.ink)
+                    .foregroundStyle(askNeedsHighlight ? Theme.gold : Theme.ink)
                     .frame(height: 40)
                     .padding(.horizontal, 16)
                     .background(Theme.surface, in: Capsule())
-                    .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                    .overlay(Capsule().stroke(askNeedsHighlight ? Theme.gold : Theme.line,
+                                              lineWidth: askNeedsHighlight ? 1.5 : 1))
+                    .shadow(color: Theme.gold.opacity(askNeedsHighlight && askGlow ? 0.5 : 0),
+                            radius: askNeedsHighlight && askGlow ? 11 : 0)
                 }
                 .accessibilityLabel("Ask your notes")
+                .onChange(of: askNeedsHighlight) { _, active in setAskGlow(active) }
+                .onAppear { setAskGlow(askNeedsHighlight) }
                 Button { showCapture = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))
@@ -160,6 +182,17 @@ struct LibraryView: View {
         if case .loaded = state {} else { state = .loading }
         do { state = .loaded(try await session.loadEntities()) }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
+    }
+
+    /// Start or stop the Ask pill's breathing glow. A repeatForever animation when active; a plain
+    /// settle to off when not — so the first tap (which flips `askNeedsHighlight` false) cancels
+    /// the loop cleanly rather than leaving it running.
+    private func setAskGlow(_ active: Bool) {
+        if active {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { askGlow = true }
+        } else {
+            withAnimation(.easeOut(duration: 0.25)) { askGlow = false }
+        }
     }
 }
 
