@@ -724,6 +724,15 @@ struct ReviewView: View {
             Task { try? await session.actEvent(eid) }
             return { Task { try? await session.unactEvent(eid) } }
         }
+        // (D228) A connection card: "Showed up" now suppresses it server-side (acted_at) so it
+        // doesn't return on reload — previously this fell through and did nothing. Reversible via
+        // the Undo pill, like an event.
+        if case .other(let o) = item.card, o.type == "connection", let lid = o.linkId {
+            Analytics.capture("nudge_acted", ["nudge_kind": "connect", "action": "showed_up"])
+            Analytics.noteValueMoment()
+            Task { await session.actConnection(linkId: lid) }
+            return { Task { await session.unactConnection(linkId: lid) } }
+        }
         guard case .nudge(let n) = item.card else { return {} }
         // The explicit "Showed up" act (button or message-sent) — the headline moat
         // signal. Distinct from a KEEP swipe (action:"kept").
@@ -888,7 +897,8 @@ struct ReviewView: View {
         Task {
             // Server writes the insight + sets booked_at, and hands back both ids for Undo.
             let resp = try? await session.confirmReservation(entityId: entityId, restaurant: r.displayTitle,
-                                                             eventId: r.eventId, platform: r.platform, outcome: "booked")
+                                                             eventId: r.eventId, platform: r.platform, outcome: "booked",
+                                                             kind: r.kind)   // (D228) so the note copy matches the link-out
             await MainActor.run {
                 resolveBooking(item, eventId: resp?.bookedEventId ?? r.eventId, insightId: resp?.insightId)
             }

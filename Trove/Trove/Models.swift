@@ -521,6 +521,7 @@ struct ReservationConfirmRequest: Encodable, Sendable {
     let outcome: String        // "booked" | "not_yet" | "declined"
     let platform: String?
     let eventId: Int?
+    let kind: String?          // (D228) dining|shop|event|movie — drives the note copy the server writes
 }
 
 struct ReservationConfirmResponse: Decodable, Sendable {

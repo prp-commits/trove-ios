@@ -241,13 +241,23 @@ final class Session {
     /// (drops the Review nudge, keeps it in Pulse). Returns the ids so the caller can Undo.
     @discardableResult
     func confirmReservation(entityId: Int, restaurant: String, eventId: Int?,
-                            platform: String?, outcome: String) async throws -> ReservationConfirmResponse {
+                            platform: String?, outcome: String, kind: String?) async throws -> ReservationConfirmResponse {
         let res: ReservationConfirmResponse = try await api.request(
             "/api/reservations/confirm", .post,
             body: ReservationConfirmRequest(entityId: entityId, restaurant: restaurant,
-                                            outcome: outcome, platform: platform, eventId: eventId))
+                                            outcome: outcome, platform: platform, eventId: eventId, kind: kind))
         if outcome == "booked" { dataVersion += 1 }   // a new insight landed
         return res
+    }
+
+    // (D228) "Showed up" on a connection card — a reversible suppression, mirroring an acted event.
+    func actConnection(linkId: Int) async {
+        _ = try? await api.request("/api/connections/\(linkId)/act", .post) as OKResponse
+        dataVersion += 1
+    }
+    func unactConnection(linkId: Int) async {
+        _ = try? await api.request("/api/connections/\(linkId)/unact", .post) as OKResponse
+        dataVersion += 1
     }
 
     /// Phase B: re-resolve a floored venue in the city the user picked ("their city or yours?").
