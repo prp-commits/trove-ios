@@ -1,6 +1,7 @@
 import UIKit
 import Social
 import UniformTypeIdentifiers
+import CryptoKit
 
 /// Trove Share Extension — capture a URL, selected text, or photo from any app's
 /// share sheet straight into `/api/ingest`. Reuses the app's session via the
@@ -67,9 +68,13 @@ class ShareViewController: SLComposeServiceViewController {
 
         if let p = providers.first(where: { $0.hasImage }) {
             let (data, mediaType) = try await p.loadImage()
-            try await ShareIngest.ingestImage(base64: data.base64EncodedString(),
-                                              mediaType: mediaType,
-                                              title: note.isEmpty ? nil : note)
+            // D231: don't BLOCK the share sheet on the full upload + server extraction (5–20s for a
+            // photo). Do only the CHEAP part synchronously — a content-hash pre-flight — then hand
+            // the heavy upload to a background session and let the sheet dismiss immediately.
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            if try await ShareIngest.preflightImage(contentHash: hash) { return true } // "Already saved"
+            try ShareIngest.enqueueImageUpload(base64: data.base64EncodedString(), mediaType: mediaType,
+                                               title: note.isEmpty ? nil : note, contentHash: hash)
             return false
         }
         if let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {

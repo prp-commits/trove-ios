@@ -63,11 +63,61 @@ enum ShareIngest {
         try await post(body)
     }
 
+    // MARK: - D231: split the CHEAP duplicate check from the EXPENSIVE upload
+
+    /// The pre-flight (D231): "have I already saved this photo?" by content hash, BEFORE the heavy
+    /// upload. Small + fast, so the share sheet blocks only for this — not the whole extraction.
+    /// Reuses `post`, so it carries the same account guard + 401-refresh as a real ingest.
+    static func preflightImage(contentHash: String) async throws -> Bool {
+        try await post(["contentHash": contentHash], path: "/api/ingest/image-check")
+    }
+
+    /// Hand the full image to a BACKGROUND URLSession and return immediately. The upload is owned by
+    /// `nsurlsessiond`, so it survives the extension being killed the instant the sheet dismisses,
+    /// and auto-retries on network. The body is written to a file in the shared app-group container
+    /// (background sessions upload from a file, not in-memory). Fire-and-forget: the server's ingest
+    /// re-checks the hash, so a race can't double-save; a hard failure after dismiss is silent.
+    static func enqueueImageUpload(base64: String, mediaType: String, title: String?, contentHash: String) throws {
+        guard let token = SharedKeychain.read(SharedKeychain.accessKey) else { throw IngestError.noSession }
+        var body: [String: Any] = ["kind": "image", "imageBase64": base64, "imageMediaType": mediaType, "contentHash": contentHash]
+        if let title, !title.isEmpty { body["title"] = title }
+        let data = try JSONSerialization.data(withJSONObject: body)
+
+        guard let dir = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: SharedSession.appGroup)?
+            .appendingPathComponent("share-uploads", isDirectory: true) else { throw IngestError.badResponse }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fileURL = dir.appendingPathComponent(UUID().uuidString + ".json")
+        try data.write(to: fileURL, options: .atomic)
+
+        guard let url = URL(string: ShareConfig.baseURL + "/api/ingest") else { throw IngestError.badResponse }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        // A UNIQUE identifier per upload: two processes (extension + app) can't share one background
+        // session, so each share is its own session. If the extension dies before it finishes, iOS
+        // relaunches the APP with this identifier to deliver the final callbacks (AppDelegate).
+        let id = "ai.trovestore.Trove.upload." + UUID().uuidString
+        let config = URLSessionConfiguration.background(withIdentifier: id)
+        config.sharedContainerIdentifier = SharedSession.appGroup
+        config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
+        let session = URLSession(configuration: config, delegate: BackgroundUploadDelegate.shared, delegateQueue: nil)
+        let task = session.uploadTask(with: req, fromFile: fileURL)
+        task.taskDescription = fileURL.path   // so the delegate can delete the temp file when done
+        task.resume()
+    }
+
     // MARK: - Core
 
     /// @returns true when the server replied 200 {duplicate:true} (already saved).
+    /// `path` lets the same auth/refresh/account-guard back both /api/ingest and the D231
+    /// /api/ingest/image-check pre-flight.
     @discardableResult
-    private static func post(_ json: [String: Any], isRetry: Bool = false) async throws -> Bool {
+    private static func post(_ json: [String: Any], path: String = "/api/ingest", isRetry: Bool = false) async throws -> Bool {
         guard let token = SharedKeychain.read(SharedKeychain.accessKey) else { throw IngestError.noSession }
         // Guard a STALE shared session: if the token's account differs from the app's
         // active account, REFUSE rather than silently ingest under the wrong user
@@ -75,7 +125,7 @@ enum ShareIngest {
         if let active = SharedSession.activeAccountId, let owner = accountId(fromJWT: token), active != owner {
             throw IngestError.wrongAccount
         }
-        guard let url = URL(string: ShareConfig.baseURL + "/api/ingest") else { throw IngestError.badResponse }
+        guard let url = URL(string: ShareConfig.baseURL + path) else { throw IngestError.badResponse }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -87,7 +137,7 @@ enum ShareIngest {
         guard let http = response as? HTTPURLResponse else { throw IngestError.badResponse }
 
         if http.statusCode == 401 && !isRetry {
-            if await refresh() { return try await post(json, isRetry: true) }
+            if await refresh() { return try await post(json, path: path, isRetry: true) }
             throw IngestError.noSession
         }
         guard (200..<300).contains(http.statusCode) else {
@@ -138,5 +188,16 @@ enum ShareIngest {
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let e = obj["error"] as? String { return e }
         return "Something went wrong."
+    }
+}
+
+// D231: the extension's own background-session delegate. Handles the case where the extension is
+// still alive when a (small, fast) upload finishes — it just deletes the temp file. If the extension
+// has already been killed, the APP receives these callbacks instead (see AppDelegate).
+final class BackgroundUploadDelegate: NSObject, URLSessionDataDelegate {
+    static let shared = BackgroundUploadDelegate()
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let path = task.taskDescription { try? FileManager.default.removeItem(atPath: path) }
+        session.finishTasksAndInvalidate()
     }
 }
