@@ -14,10 +14,16 @@ struct FirstRunView: View {
 
     enum Beat { case intro, capture, build }
     enum Phase { case working, done(IngestResponse), error(String) }
+    // (D225) The seeded-Ask demo, inside the "Filed it" state. `.prompt` shows a tappable question
+    // built from the person they just captured; a tap runs a real /api/ask and shows the grounded
+    // answer + citation. `.hidden` is the graceful fallthrough — a throw, an `unknown`, or no
+    // citation collapses the demo silently rather than showing a fizzle in onboarding.
+    enum AskDemo { case prompt, working, answered(AskResponse), hidden }
 
     @State private var beat: Beat = .intro
     @State private var text = ""
     @State private var phase: Phase = .working
+    @State private var askDemo: AskDemo = .prompt
     @State private var captureError: String?
     @State private var ready = false           // gates first paint until we know the library is empty
     @State private var checked = false
@@ -232,11 +238,90 @@ struct FirstRunView: View {
                     .multilineTextAlignment(.center).lineSpacing(2)
                     .padding(.horizontal, 8)
 
+                // (D225) The second aha: they see Ask answer from the very note they just wrote,
+                // cited. Only when we have a person to seed the question with.
+                if let primary { askDemoView(primary.name) }
+
                 Button("Open my Trove") { complete() }
                     .buttonStyle(PillButtonStyle(filled: true))
                     .padding(.top, 4)
             }
             .padding(.horizontal, 28).padding(.vertical, 28)
+        }
+    }
+
+    // MARK: the seeded Ask demo (D225)
+
+    @ViewBuilder private func askDemoView(_ name: String) -> some View {
+        let seeded = "What do I know about \(name)?"
+        switch askDemo {
+        case .hidden:
+            EmptyView()
+        case .prompt:
+            VStack(alignment: .leading, spacing: 10) {
+                Text("You can just ask.")
+                    .font(.troveSerif(20)).foregroundStyle(Theme.ink)
+                Text("Trove answers from your own notes — and never makes things up.")
+                    .font(.troveMono(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                Button { Task { await runAskDemo(seeded) } } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Theme.gold)
+                        Text(seeded).font(.troveMono(13)).foregroundStyle(Theme.ink)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    .padding(.vertical, 11).padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .working:
+            HStack(spacing: 10) {
+                ProgressView().tint(Theme.ink)
+                Text("Reading your notes…").font(.troveMono(12)).foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .answered(let res):
+            VStack(alignment: .leading, spacing: 10) {
+                Text(seeded).font(.troveMono(12, .medium)).foregroundStyle(Theme.muted)
+                Text(res.answer).font(.system(size: 15)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let c = res.citations.first, let t = c.text {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("FROM YOUR NOTE").font(.troveMono(9, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
+                        Text(t).font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Run the demo ask. NEVER surfaces an error in onboarding — a throw, a grounding miss
+    /// (`unknown`), or a citation-less answer all collapse the demo to `.hidden`, so the worst case
+    /// is that the section quietly disappears and "Open my Trove" is right there. `session.ask`
+    /// already fires `ask_submitted`.
+    private func runAskDemo(_ q: String) async {
+        Analytics.capture("onboarding_ask_tapped")
+        withAnimation { askDemo = .working }
+        do {
+            let res = try await session.ask(q)
+            if res.unknown || res.citations.isEmpty {
+                withAnimation { askDemo = .hidden }
+            } else {
+                withAnimation { askDemo = .answered(res) }
+            }
+        } catch {
+            withAnimation { askDemo = .hidden }
         }
     }
 
@@ -286,6 +371,8 @@ struct FirstRunView: View {
                 Haptics.success()
                 Analytics.capture("onboarding_captured", ["count": res.count])
                 phase = .done(res)
+                askDemo = .prompt
+                if res.insights.first?.entity != nil { Analytics.capture("onboarding_ask_shown") }
                 playReveal()
             } catch {
                 phase = .error((error as? APIError)?.errorDescription ?? error.localizedDescription)
