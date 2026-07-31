@@ -23,8 +23,13 @@ class ShareViewController: SLComposeServiceViewController {
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
         Task {
             do {
-                let duplicate = try await Self.handle(items: items, note: note)
-                await MainActor.run { duplicate ? self.completeDuplicate() : self.complete() }
+                let result = try await Self.handle(items: items, note: note)
+                await MainActor.run {
+                    switch result {
+                    case .saved: self.complete()
+                    case .duplicate(let noun): self.completeDuplicate(noun: noun)
+                    }
+                }
             } catch {
                 await MainActor.run { self.fail(error) }
             }
@@ -39,11 +44,12 @@ class ShareViewController: SLComposeServiceViewController {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 
-    // De-dup (D141): the server already had this video, so nothing was created —
-    // tell the user instead of a silent "success" that produces no new note.
-    private func completeDuplicate() {
+    // De-dup (D141): the server already had this item, so nothing was created —
+    // tell the user instead of a silent "success" that produces no new note. The
+    // noun matches what was shared (image vs video), D231.
+    private func completeDuplicate(noun: String) {
         let alert = UIAlertController(title: "Already saved",
-                                      message: "You've already saved this video to Trove.",
+                                      message: "You've already saved this \(noun) to Trove.",
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
             self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
@@ -62,8 +68,14 @@ class ShareViewController: SLComposeServiceViewController {
 
     // MARK: - Extraction + dispatch (priority: image > url > text)
 
-    /// @returns true when the capture was a duplicate (already-saved video).
-    private static func handle(items: [NSExtensionItem], note: String) async throws -> Bool {
+    /// The outcome of a capture: either it created something, or the server already had it —
+    /// in which case we carry the NOUN so the "Already saved" alert reads naturally (D231).
+    private enum ShareResult {
+        case saved
+        case duplicate(noun: String)
+    }
+
+    private static func handle(items: [NSExtensionItem], note: String) async throws -> ShareResult {
         let providers = items.flatMap { $0.attachments ?? [] }
 
         if let p = providers.first(where: { $0.hasImage }) {
@@ -72,24 +84,24 @@ class ShareViewController: SLComposeServiceViewController {
             // photo). Do only the CHEAP part synchronously — a content-hash pre-flight — then hand
             // the heavy upload to a background session and let the sheet dismiss immediately.
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            if try await ShareIngest.preflightImage(contentHash: hash) { return true } // "Already saved"
+            if try await ShareIngest.preflightImage(contentHash: hash) { return .duplicate(noun: "image") }
             try ShareIngest.enqueueImageUpload(base64: data.base64EncodedString(), mediaType: mediaType,
                                                title: note.isEmpty ? nil : note, contentHash: hash)
-            return false
+            return .saved
         }
         if let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {
             let url = try await p.loadURL()
-            return try await ShareIngest.ingestURL(url.absoluteString)
+            return try await ShareIngest.ingestURL(url.absoluteString) ? .duplicate(noun: "video") : .saved
         }
         if let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) }) {
             let text = try await p.loadText()
             let combined = note.isEmpty ? text : text + "\n\n" + note
             // A video may arrive as text (YouTube) — the server dedups + reports it.
-            return try await ShareIngest.ingestText(combined, title: nil)
+            return try await ShareIngest.ingestText(combined, title: nil) ? .duplicate(noun: "video") : .saved
         }
         // Nothing recognized but the user typed a note → capture it as text.
         if !note.isEmpty {
-            return try await ShareIngest.ingestText(note, title: nil)
+            return try await ShareIngest.ingestText(note, title: nil) ? .duplicate(noun: "note") : .saved
         }
         throw ShareIngest.IngestError.badResponse
     }
