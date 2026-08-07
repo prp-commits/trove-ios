@@ -24,10 +24,13 @@ enum SharedSession {
     }
 }
 
-/// Minimal ingest client for the Share Extension. Reuses the app's session from
-/// the shared keychain, posts to `/api/ingest` (camelCase bodies), and transparently
-/// refreshes once on a 401 — access tokens are short-lived and the extension is
-/// used sporadically, so a stale token is the common case.
+/// Minimal ingest client for the Share Extension. Reuses the app's session from the
+/// shared keychain and posts to `/api/ingest` (camelCase bodies). The extension runs
+/// sporadically, so the stored access token is usually stale — token management is
+/// therefore self-healing (D190 Fix ②): it refreshes PROACTIVELY when the token's `exp`
+/// has passed, falls back to a reactive 401 refresh, and — because the app and the
+/// extension share ONE rotating refresh token — re-reads the keychain to pick up a
+/// token the app already rotated, so a share recovers WITHOUT the user opening the app.
 enum ShareIngest {
     enum IngestError: Error, LocalizedError {
         case noSession
@@ -118,7 +121,10 @@ enum ShareIngest {
     /// /api/ingest/image-check pre-flight.
     @discardableResult
     private static func post(_ json: [String: Any], path: String = "/api/ingest", isRetry: Bool = false) async throws -> Bool {
-        guard let token = SharedKeychain.read(SharedKeychain.accessKey) else { throw IngestError.noSession }
+        // Resolve a NON-EXPIRED token up front (D190 Fix ②). The extension runs
+        // sporadically, so the stored access token is usually stale — proactively
+        // refreshing here means the common case never even sends a doomed request.
+        let token = try await accessToken()
         // Guard a STALE shared session: if the token's account differs from the app's
         // active account, REFUSE rather than silently ingest under the wrong user
         // (the D144 cross-account bug). Fail open when either side is unknown.
@@ -137,8 +143,12 @@ enum ShareIngest {
         guard let http = response as? HTTPURLResponse else { throw IngestError.badResponse }
 
         if http.statusCode == 401 && !isRetry {
-            if await refresh() { return try await post(json, path: path, isRetry: true) }
-            throw IngestError.noSession
+            // The token read as live (or its expiry was unreadable) but the server
+            // rejected it — clock skew, or it was rotated out from under us. Force a
+            // refresh (which re-reads the keychain first, so the app's fresh token is
+            // reused if it already refreshed) and retry ONCE.
+            guard await freshAccessToken(stale: token) != nil else { throw IngestError.noSession }
+            return try await post(json, path: path, isRetry: true)
         }
         guard (200..<300).contains(http.statusCode) else {
             throw IngestError.server(http.statusCode, message(from: data))
@@ -147,9 +157,39 @@ enum ShareIngest {
         return (obj?["duplicate"] as? Bool) ?? false
     }
 
-    /// One-shot refresh: `/auth/refresh` takes snake_case `refresh_token`; on
-    /// success we persist the rotated pair back to the shared keychain so the app
-    /// and extension stay in lockstep.
+    /// A NON-EXPIRED access token for the active account. Returns the stored token when
+    /// it's still live; otherwise refreshes proactively so a share never posts a token
+    /// that dies mid-flight. Throws `.noSession` only when the session is genuinely gone.
+    private static func accessToken() async throws -> String {
+        guard let token = SharedKeychain.read(SharedKeychain.accessKey) else { throw IngestError.noSession }
+        if !isExpired(token) { return token }
+        guard let fresh = await freshAccessToken(stale: token) else { throw IngestError.noSession }
+        return fresh
+    }
+
+    /// Obtain a fresh access token, self-healing across the app↔extension split (D190 Fix ②).
+    /// The app and the extension SHARE one rotating refresh token; when the app has already
+    /// rotated it (past the server's 60s reuse-grace), our own `refresh()` can't — so we must
+    /// pick up the token the app wrote rather than force the user to open the app and re-share.
+    /// Order: (1) re-read the keychain — another process may have refreshed already; (2) rotate
+    /// via our refresh token; (3) re-read once more, in case the app refreshed while we raced.
+    private static func freshAccessToken(stale: String) async -> String? {
+        if let current = SharedKeychain.read(SharedKeychain.accessKey), current != stale, !isExpired(current) {
+            return current
+        }
+        if await refresh(), let rotated = SharedKeychain.read(SharedKeychain.accessKey), !isExpired(rotated) {
+            return rotated
+        }
+        if let current = SharedKeychain.read(SharedKeychain.accessKey), current != stale, !isExpired(current) {
+            return current
+        }
+        return nil
+    }
+
+    /// One-shot rotation via `/auth/refresh` (snake_case `refresh_token`); on success
+    /// we persist the rotated pair back to the shared keychain so the app and extension
+    /// stay in lockstep. Returns false on any non-2xx/parse/network failure — the caller
+    /// (`freshAccessToken`) then re-reads the keychain to recover a token the app rotated.
     private static func refresh() async -> Bool {
         guard let refreshToken = SharedKeychain.read(SharedKeychain.refreshKey),
               let url = URL(string: ShareConfig.baseURL + "/auth/refresh") else { return false }
@@ -168,20 +208,37 @@ enum ShareIngest {
         return true
     }
 
-    /// Extract the `sub` (user id) claim from a JWT access token WITHOUT verifying the
-    /// signature — we only compare it to the app's active account to catch a stale
-    /// shared session, so trust isn't at stake (the server still verifies the token).
-    /// Best-effort: nil if it can't be parsed → the caller fails open.
-    private static func accountId(fromJWT token: String) -> Int? {
+    /// Decode a JWT's payload claims WITHOUT verifying the signature — we only read
+    /// `sub`/`exp` to guard the account and pre-empt expiry locally; the server still
+    /// verifies every token, so trust isn't at stake. Best-effort: nil if unparseable.
+    private static func claims(fromJWT token: String) -> [String: Any]? {
         let parts = token.split(separator: ".")
         guard parts.count == 3 else { return nil }
         var b64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b64.count % 4 != 0 { b64 += "=" }
-        guard let data = Data(base64Encoded: b64),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let data = Data(base64Encoded: b64) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// The `sub` (user id) claim — compared to the app's active account to catch a
+    /// stale shared session (D144). Best-effort: nil → the caller fails open.
+    private static func accountId(fromJWT token: String) -> Int? {
+        guard let obj = claims(fromJWT: token) else { return nil }
         if let sub = obj["sub"] as? Int { return sub }
         if let sub = obj["sub"] as? String { return Int(sub) }
         return nil
+    }
+
+    /// True when the access token is expired OR within `skew` of expiry. We refresh a
+    /// little early so a share never posts a token that dies in flight. If `exp` can't
+    /// be read we return false (treat as live) — the reactive 401 path is the backstop.
+    private static func isExpired(_ token: String, skew: TimeInterval = 120) -> Bool {
+        guard let obj = claims(fromJWT: token) else { return false }
+        let exp: Double
+        if let e = obj["exp"] as? Double { exp = e }
+        else if let e = obj["exp"] as? Int { exp = Double(e) }
+        else { return false }
+        return Date().timeIntervalSince1970 + skew >= exp
     }
 
     private static func message(from data: Data) -> String {
