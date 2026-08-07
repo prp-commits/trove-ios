@@ -129,21 +129,57 @@ actor APIClient {
         catch { refreshTask = nil; throw error }
     }
 
+    /// Refresh the access token, hardened for the app↔Share-Extension split (D190 Fix ②).
+    /// The extension shares this one rotating refresh token and can rotate it out from under
+    /// us, and a transient 5xx/429/network blip must NEVER log the user out. So: capture the
+    /// token we present, and on any failure re-read the Keychain — if another process already
+    /// rotated it, converge on that fresh token. Only a DEFINITIVE 401/403 (with no fresher
+    /// token to fall back on) clears the session; everything else keeps it and surfaces a
+    /// retryable error.
     private func performRefresh() async throws {
-        guard let refresh = tokenStore.refreshToken else { throw APIError.unauthorized }
+        guard let presented = tokenStore.refreshToken else { throw APIError.unauthorized }
         guard let url = URL(string: Config.baseURL + "/auth/refresh") else { throw APIError.invalidURL }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try encoder.encode(RefreshRequest(refreshToken: refresh))
+        req.httpBody = try encoder.encode(RefreshRequest(refreshToken: presented))
 
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: req) }
+        catch {
+            // Transport failure — transient. Keep the session; if the extension refreshed
+            // concurrently, the caller's retry picks up that token.
+            if refreshedElsewhere(since: presented) { return }
+            throw APIError.network(error)
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.network(URLError(.badServerResponse)) }
+
+        if (200..<300).contains(http.statusCode) {
+            let auth: AuthResponse = try decode(data)
+            tokenStore.save(access: auth.accessToken, refresh: auth.refreshToken)
+            return
+        }
+
+        // Failed. If another process already rotated the shared token while we were in flight,
+        // our failure is moot — the retry will use the fresher token.
+        if refreshedElsewhere(since: presented) { return }
+
+        // A DEFINITIVE auth rejection (401/403) with no fresher token = genuinely dead session.
+        // Anything else (429 rate-limit, 5xx) is transient — keep the session, surface retryable.
+        if http.statusCode == 401 || http.statusCode == 403 {
             tokenStore.clear()
             throw APIError.unauthorized
         }
-        let auth: AuthResponse = try decode(data)
-        tokenStore.save(access: auth.accessToken, refresh: auth.refreshToken)
+        throw APIError.server(status: http.statusCode, message: Self.message(from: data))
+    }
+
+    /// True when the shared Keychain now holds a DIFFERENT refresh token than the one we
+    /// presented — i.e. another process (the Share Extension) rotated it concurrently, so
+    /// our own failed refresh can be safely ignored in favour of that fresher token.
+    private func refreshedElsewhere(since presented: String) -> Bool {
+        guard let current = tokenStore.refreshToken else { return false }
+        return current != presented
     }
 
     private static func message(from data: Data) -> String {
