@@ -19,9 +19,9 @@ enum Config {
     static let baseURL = "https://trove-api-wewx.onrender.com"
     #endif
 
-    /// Where the in-app "Send feedback" button (M8) addresses mail. Change to
-    /// whatever inbox you want beta feedback to land in.
-    static let feedbackEmail = "paramclaudeuse@gmail.com"
+    /// Where the in-app "Send feedback" and account-deletion mailto links address.
+    /// Set this to your own support inbox before shipping a build.
+    static let feedbackEmail = "support@example.com"
 
     /// Google Sign-In iOS OAuth client (Phase B). Public by design — it ships in
     /// every client; the URL scheme (reversed form) is in the target's Info → URL

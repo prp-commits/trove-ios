@@ -30,7 +30,7 @@ struct ConsentView: View {
                         point("lock", "It's yours alone.",
                               "Your notes and the profiles you build are never shared or sold — they're private to your account.")
                         point("slider.horizontal.3", "You're in control.",
-                              "Edit or delete anything anytime, or delete your whole account by emailing paramclaudeuse@gmail.com.")
+                              "Edit or delete anything anytime, or delete your whole account by emailing \(Config.feedbackEmail).")
                         point("chart.bar.xaxis", "Anonymous usage only.",
                               "We measure how the app is used with no personal content — no names, notes, or messages ever leave for analytics.")
                     }
