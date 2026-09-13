@@ -1,8 +1,12 @@
 import SwiftUI
+import UIKit
 
 // The monthly "showed up" receipt (Theme A, docs/BUILD_PLAN_THEME_A_RECEIPTS.md).
 // A warm reflection surfaced at the top of Pulse: counts framed as what you DID
 // (never a scoreboard of misses), with tap-through to the real people (provenance).
+//
+// Slice 4 (share export) adds an aggregate-only shareable image — counts, no names,
+// content-free by construction — as the organic-distribution loop. See ReceiptShareCard.
 
 /// The summary card. Taps open the detail sheet.
 struct ReceiptCard: View {
@@ -92,8 +96,10 @@ struct ReceiptDetailView: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var names: [Int: String] = [:]
+    @State private var shareItem: ShareImage?          // slice 4: the rendered aggregate-only export
 
     private struct PersonRef: Hashable { let id: Int; let name: String }
+    private struct ShareImage: Identifiable { let id = UUID(); let image: UIImage }
 
     var body: some View {
         NavigationStack {
@@ -136,9 +142,49 @@ struct ReceiptDetailView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }.foregroundStyle(Theme.muted)
                 }
+                // Share an aggregate-only image (never for an empty month — nothing to
+                // share, and the warmth rule forbids a "0" scoreboard going public).
+                if receipt.hasActivity {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { presentShare() } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .foregroundStyle(Theme.ink)
+                        .accessibilityLabel("Share your month")
+                    }
+                }
             }
         }
         .task { await loadNames() }
+        .sheet(item: $shareItem) { item in
+            // completed == true only → a real share happened (cancel emits nothing).
+            ShareSheet(items: [item.image]) { activityType, completed in
+                if completed {
+                    ReceiptAnalytics.shared(receipt, destination: shareDestination(activityType))
+                }
+                shareItem = nil
+            }
+        }
+    }
+
+    // Render the aggregate-only card to an image, then present the system share sheet.
+    @MainActor private func presentShare() {
+        Haptics.soft()
+        let renderer = ImageRenderer(content: ReceiptShareCard(receipt: receipt))
+        renderer.scale = 3   // crisp on any device; ~1080×1350 from the 360×450 card
+        guard let image = renderer.uiImage else { return }
+        shareItem = ShareImage(image: image)
+    }
+
+    // Map the chosen activity → the content-free share_destination enum
+    // (image | link | messages | other). No app or recipient identity is recorded.
+    private func shareDestination(_ type: UIActivity.ActivityType?) -> String {
+        switch type {
+        case .some(.message):                            return "messages"
+        case .some(.mail), .some(.copyToPasteboard):     return "link"
+        case .some(.saveToCameraRoll), .some(.airDrop):  return "image"
+        default:                                         return "other"
+        }
     }
 
     private func personRow(id: Int, name: String) -> some View {
@@ -184,6 +230,98 @@ struct ReceiptDetailView: View {
     }
 }
 
+/// The aggregate-only share image (Theme A slice 4). Content-free **by construction**:
+/// first-person counts + the compounding line, and **never a name** — safe to post.
+/// This is the organic-distribution loop; do not render `showedUpEntityIds` here.
+struct ReceiptShareCard: View {
+    let receipt: MonthlyReceipt
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("TROVE")
+                .font(.troveMono(13, .semibold)).tracking(3).foregroundStyle(Theme.gold)
+
+            Spacer(minLength: 0)
+
+            Text(receipt.monthLabel.uppercased())
+                .font(.troveMono(12, .medium)).tracking(1).foregroundStyle(Theme.muted)
+            Text(shareHeadline)
+                .font(.troveSerif(34)).foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+            if !subLines.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(subLines, id: \.self) { line in
+                        Text(line).font(.troveMono(13)).foregroundStyle(Theme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 16)
+            }
+
+            Spacer(minLength: 0)
+
+            Text("a private relationship second brain")
+                .font(.troveMono(10)).foregroundStyle(Theme.muted)
+        }
+        .padding(28)
+        .frame(width: 360, height: 450, alignment: .leading)
+        .background(Theme.bg)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusCard)
+                .stroke(Theme.gold.opacity(0.5), lineWidth: 2)
+                .padding(8)
+        )
+    }
+
+    // First-person, aggregate — mirrors the card's strongest-positive rule so a
+    // quiet-on-people month never posts "I showed up for 0 people."
+    private var shareHeadline: String {
+        if receipt.showedUpPeople > 0 {
+            let n = receipt.showedUpPeople
+            return "I showed up for \(n) \(n == 1 ? "person" : "people")."
+        }
+        if receipt.rememberedNew > 0 {
+            let n = receipt.rememberedNew
+            return "I remembered \(n) new thing\(n == 1 ? "" : "s")."
+        }
+        let n = receipt.plansKept
+        return "I kept \(n) plan\(n == 1 ? "" : "s")."
+    }
+
+    private var subLines: [String] {
+        var out: [String] = []
+        if receipt.reconnectedPeople > 0 {
+            out.append("Reconnected with \(receipt.reconnectedPeople) after a quiet stretch")
+        }
+        if receipt.plansKept > 0 && receipt.showedUpPeople > 0 {
+            out.append("Kept \(receipt.plansKept) plan\(receipt.plansKept == 1 ? "" : "s")")
+        }
+        if let span = receipt.library.monthsSpan, span >= 1, receipt.library.people > 0 {
+            out.append("My library spans \(span) month\(span == 1 ? "" : "s") · \(receipt.library.people) \(receipt.library.people == 1 ? "person" : "people")")
+        }
+        return out
+    }
+}
+
+/// Thin wrapper over `UIActivityViewController`. Unlike `ShareLink`, this surfaces
+/// the completion (activity + completed) so we can attribute a content-free
+/// `share_destination` — and emit nothing at all when the user cancels.
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    var onComplete: (UIActivity.ActivityType?, Bool) -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { activityType, completed, _, _ in
+            onComplete(activityType, completed)
+        }
+        return vc
+    }
+
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}
+
 /// Fires `receipt_viewed` at most once per period per app run (content-free).
 enum ReceiptAnalytics {
     private static var seen: Set<String> = []
@@ -198,6 +336,17 @@ enum ReceiptAnalytics {
             "showed_up_bucket": bucket(r.showedUpPeople),
             "remembered_bucket": bucket(r.rememberedNew),
             "has_activity": r.hasActivity,
+        ])
+    }
+
+    /// Fires `receipt_shared` on a completed share (content-free: buckets, no names).
+    /// Not deduped — each completed share is a distinct organic-distribution signal.
+    @MainActor
+    static func shared(_ r: MonthlyReceipt, destination: String) {
+        Analytics.capture("receipt_shared", [
+            "period": r.period,
+            "share_destination": destination,
+            "showed_up_bucket": bucket(r.showedUpPeople),
         ])
     }
 
