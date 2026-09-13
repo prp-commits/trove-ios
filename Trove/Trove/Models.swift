@@ -587,7 +587,20 @@ struct NudgePayload: Decodable, Sendable {
     let title: String
     let body: String
     let moreCount: Int?        // D132: other nudges waiting → "+N more in Review" tail
+    let itemCount: Int?        // Theme A slice 5: how many items in a briefing digest (nudge_kind "briefing")
 }
+
+// Theme A slice 5 — the daily-briefing opt-in (Profile toggle reads/writes this).
+struct NotifyPrefs: Decodable, Sendable {
+    let briefingEnabled: Int?          // 0/1 from the server
+    var briefingOn: Bool { (briefingEnabled ?? 0) != 0 }
+}
+struct NotifyPrefsResponse: Decodable, Sendable { let prefs: NotifyPrefs }
+struct BriefingPrefRequest: Encodable, Sendable {
+    let briefingEnabled: Int
+    enum CodingKeys: String, CodingKey { case briefingEnabled = "briefing_enabled" }
+}
+struct SnoozeBriefingRequest: Encodable, Sendable { let days: Int }
 
 struct SwipeRequest: Encodable, Sendable {
     let entityId: Int

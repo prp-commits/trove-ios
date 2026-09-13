@@ -207,6 +207,20 @@ final class Session {
         try await api.request("/api/notifications/test", .post)
     }
 
+    // Theme A slice 5 — daily briefing opt-in + one-thumb snooze.
+    func loadNotifyPrefs() async throws -> NotifyPrefs {
+        let r: NotifyPrefsResponse = try await api.request("/api/notifications/prefs")
+        return r.prefs
+    }
+    func setBriefingEnabled(_ on: Bool) async throws {
+        let _: OKResponse = try await api.request(
+            "/api/notifications/prefs", .patch, body: BriefingPrefRequest(briefingEnabled: on ? 1 : 0))
+    }
+    func snoozeBriefing(days: Int = 3) async {
+        let _: OKResponse? = try? await api.request(
+            "/api/notifications/briefing/snooze", .post, body: SnoozeBriefingRequest(days: days))
+    }
+
     // Entity detail actions
     func addInsight(entityId: Int, text: String) async throws {
         let _: OKResponse = try await api.request("/api/insights", .post, body: AddInsightRequest(entityId: entityId, text: text))

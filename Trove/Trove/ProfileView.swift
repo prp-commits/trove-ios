@@ -17,6 +17,8 @@ struct ProfileView: View {
     @AppStorage(DeviceSync.enabledKey) private var deviceSyncEnabled = false
     @AppStorage(DeviceSync.lastSyncKey) private var lastSyncAt = 0.0
     @State private var showRecentCaptures = false
+    @State private var briefingOn = false          // Theme A slice 5: daily-briefing opt-in
+    @State private var briefingLoaded = false
 
     var body: some View {
         ScrollView {
@@ -62,11 +64,35 @@ struct ProfileView: View {
                     if let testNote {
                         Text(testNote).font(.troveMono(10)).foregroundStyle(Theme.muted)
                     }
+
+                    // Theme A slice 5 — the daily briefing opt-in. Off by default (earned):
+                    // the digest only fires once the user turns it on.
+                    Divider().overlay(Theme.line).padding(.vertical, 2)
+                    Toggle(isOn: $briefingOn) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Daily briefing").font(.troveMono(13, .medium)).foregroundStyle(Theme.ink)
+                            Text("A gentle morning digest — the few people to show up for today. One thumb to snooze; off by default.")
+                                .font(.troveMono(10)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .tint(Theme.gold)
+                    .onChange(of: briefingOn) { _, on in
+                        guard briefingLoaded else { return }   // ignore the initial load-driven set
+                        Task {
+                            if on { await notifications.requestAuthorizationAndRegister() }
+                            try? await session.setBriefingEnabled(on)
+                        }
+                    }
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
                 .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+                .task {
+                    if let prefs = try? await session.loadNotifyPrefs() { briefingOn = prefs.briefingOn }
+                    briefingLoaded = true
+                }
 
                 // Calendar & Contacts (Phase C) — device sync runs silently once
                 // connected; the control here is the state + Unsync.

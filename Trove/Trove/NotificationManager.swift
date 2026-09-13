@@ -18,6 +18,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Set to the tapped nudge's ref (or "review") so the UI can route to Review.
     var pendingDeepLink: String?
 
+    /// Theme A slice 5: the tapped briefing's digest size, so MainTabView can attach it
+    /// to `daily_briefing_opened`. Set alongside a `briefing:*` deep link, else nil.
+    var pendingBriefingItemCount: Int?
+
+    /// The briefing's notification category + its one-thumb "Not today" snooze action.
+    static let briefingCategory = "briefing"
+    static let briefingSnoozeAction = "briefing.snooze"
+
     /// The capture-nudge scenario tag (D169), set alongside `pendingDeepLink == "capture"` so the
     /// router can attribute `capture_nudge_opened`. nil for non-capture taps.
     var pendingCaptureScenario: String?
@@ -29,7 +37,13 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func configure(session: Session) {
         self.session = session
         if !configured {
-            UNUserNotificationCenter.current().delegate = self
+            let center = UNUserNotificationCenter.current()
+            center.delegate = self
+            // Theme A slice 5: register the briefing's one-thumb "Not today" snooze action.
+            let snooze = UNNotificationAction(identifier: Self.briefingSnoozeAction, title: "Not today", options: [])
+            let briefing = UNNotificationCategory(identifier: Self.briefingCategory, actions: [snooze],
+                                                  intentIdentifiers: [], options: [])
+            center.setNotificationCategories([briefing])
             configured = true
         }
         flushAPNsToken()   // register a token that arrived before the session existed
@@ -115,15 +129,23 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let c = UNMutableNotificationContent()
         c.title = n.title
         // One push/day, but if more nudges are waiting, a soft tail points to Review
-        // (still a single notification — never a stack). D132.
-        if let more = n.moreCount, more > 0 {
+        // (still a single notification — never a stack). D132. A briefing already
+        // summarizes the day ("…and N more today."), so it skips the tail and carries
+        // its digest size + the snooze action instead (Theme A slice 5).
+        let isBriefing = n.nudgeKind == "briefing"
+        if !isBriefing, let more = n.moreCount, more > 0 {
             c.body = "\(n.body)\n+\(more) more in Review"
         } else {
             c.body = n.body
         }
         c.sound = .default
         c.threadIdentifier = "trove-nudge"
-        c.userInfo = ["nudge_ref": n.nudgeRef, "entity_id": n.entityId ?? 0]
+        var info: [AnyHashable: Any] = ["nudge_ref": n.nudgeRef, "entity_id": n.entityId ?? 0]
+        if isBriefing {
+            c.categoryIdentifier = Self.briefingCategory
+            info["item_count"] = n.itemCount ?? 0
+        }
+        c.userInfo = info
         return c
     }
 
@@ -145,8 +167,18 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let ref = info["nudge_ref"] as? String
         let scenario = info["scenario"] as? String
+        let itemCount = info["item_count"] as? Int
+
+        // Theme A slice 5: the briefing's "Not today" — snooze server-side, don't open/route.
+        if response.actionIdentifier == Self.briefingSnoozeAction {
+            let s = await MainActor.run { self.session }
+            await s?.snoozeBriefing()
+            return
+        }
+
         await MainActor.run {
             self.pendingCaptureScenario = (ref == "capture") ? scenario : nil
+            self.pendingBriefingItemCount = (ref?.hasPrefix("briefing") == true) ? itemCount : nil
             self.pendingDeepLink = ref ?? "review"   // set LAST — MainTabView routes off this change
         }
     }

@@ -149,6 +149,14 @@ struct MainTabView: View {
                 let kind = ref.split(separator: ":").first.map(String.init) ?? ref
                 Analytics.capture("nudge_opened", ["nudge_kind": kind])
             }
+            // Theme A slice 5: a briefing tap also fires daily_briefing_opened, carrying the
+            // digest size (content-free; ≤3). Routing falls through to Review below.
+            if ref.hasPrefix("briefing") {
+                var props: [String: Any] = [:]
+                if let n = notifications.pendingBriefingItemCount { props["item_count"] = n }
+                Analytics.capture("daily_briefing_opened", props)
+                notifications.pendingBriefingItemCount = nil
+            }
             if ref == "capture" {
                 let scenario = notifications.pendingCaptureScenario
                 Analytics.capture("capture_nudge_opened", ["scenario": scenario ?? "unknown"])
