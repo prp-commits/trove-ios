@@ -640,3 +640,42 @@ struct IngestResponse: Decodable, Sendable {
     }
 }
 
+// MARK: - Receipts (Theme A — the monthly "showed up" reflection)
+
+/// `GET /api/receipts/monthly`. Content-safe by construction: COUNTS plus the
+/// user's OWN entity ids (for tap-through provenance) — never names or note text.
+/// Decoded via `.convertFromSnakeCase` (showed_up_people → showedUpPeople, etc.).
+struct MonthlyReceipt: Decodable, Sendable {
+    let period: String                 // "YYYY-MM"
+    let showedUpPeople: Int
+    let showedUpEntityIds: [Int]
+    let reconnectedPeople: Int
+    let reconnectedEntityIds: [Int]
+    let plansKept: Int
+    let connectionsActed: Int
+    let rememberedNew: Int
+    let rememberedAboutPeople: Int
+    let library: Library
+
+    struct Library: Decodable, Sendable {
+        let connections: Int
+        let people: Int
+        let monthsSpan: Int?
+    }
+
+    /// Any real activity this month? Empty months show a gentle, forward-looking
+    /// card — never a scoreboard of zeros (the @design warmth rule).
+    var hasActivity: Bool {
+        showedUpPeople > 0 || plansKept > 0 || rememberedNew > 0 || connectionsActed > 0
+    }
+
+    /// "August 2026" from the period key, for the card eyebrow / detail title.
+    var monthLabel: String {
+        let inFmt = DateFormatter()
+        inFmt.locale = Locale(identifier: "en_US_POSIX"); inFmt.dateFormat = "yyyy-MM"
+        guard let d = inFmt.date(from: period) else { return period }
+        let out = DateFormatter(); out.locale = .current; out.dateFormat = "LLLL yyyy"
+        return out.string(from: d)
+    }
+}
+

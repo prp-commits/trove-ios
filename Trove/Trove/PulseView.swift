@@ -5,6 +5,8 @@ struct PulseView: View {
     @State private var state: Loadable<[PulseItem]> = .idle
     @State private var horizon: [HorizonItem] = []      // "On the Horizon" (D149)
     @State private var confirming: ConfirmTarget?
+    @State private var receipt: MonthlyReceipt?         // Theme A: monthly "showed up" receipt
+    @State private var showingReceipt = false
 
     // An inferred-date event the user is confirming. "this week" has no real anchor,
     // so confirming opens a date picker (prefilled with the guess) to set the actual
@@ -53,6 +55,10 @@ struct PulseView: View {
                     }
                     .padding(.top, 8)
 
+                    if let receipt {
+                        ReceiptCard(receipt: receipt) { Haptics.soft(); showingReceipt = true }
+                    }
+
                     switch state {
                     case .idle, .loading:
                         PulseSkeleton()
@@ -89,6 +95,9 @@ struct PulseView: View {
                 confirming = nil
                 Task { try? await session.confirmEvent(target.id, date: Self.isoDay(picked)) }
             } onCancel: { confirming = nil }
+        }
+        .sheet(isPresented: $showingReceipt) {
+            if let receipt { ReceiptDetailView(receipt: receipt) }
         }
         .task { if case .idle = state { await load() } }
         .onChange(of: session.dataVersion) { Task { await load() } }
@@ -335,6 +344,8 @@ struct PulseView: View {
             let resp = try await session.loadPulse()
             horizon = resp.horizon ?? []
             state = .loaded(resp.items)
+            // Non-fatal: a receipt failure must never block Pulse (leave the card hidden).
+            receipt = try? await session.loadReceipt()
         }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
     }

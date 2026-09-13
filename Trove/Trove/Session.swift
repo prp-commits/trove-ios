@@ -333,6 +333,13 @@ final class Session {
         try await api.request("/api/relationships/health")
     }
 
+    /// The monthly "showed up" receipt (Theme A). `month` = "YYYY-MM"; omit for the
+    /// current calendar month (the server resolves it in the user's timezone).
+    func loadReceipt(month: String? = nil) async throws -> MonthlyReceipt {
+        if let month { return try await api.request("/api/receipts/monthly?month=\(month)") }
+        return try await api.request("/api/receipts/monthly")
+    }
+
     /// "Showed up" — marks an event acted (suppresses it in Pulse + the deck).
     func actEvent(_ id: Int) async throws {
         let _: OKResponse = try await api.request("/api/events/\(id)/act", .post)
