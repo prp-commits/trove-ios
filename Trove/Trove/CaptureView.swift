@@ -2,7 +2,8 @@ import SwiftUI
 import PhotosUI
 
 /// The capture sheet — the AI ingest path. Note / Photo / Link → POST /api/ingest.
-/// Voice is handled by the keyboard's native dictation mic in the Note field.
+/// Voice (Theme C) is a first-class hold-to-talk surface — the mic in the nav bar
+/// opens `VoiceCaptureView` (C1c UX; C1d wires on-device STT → ingest).
 struct CaptureView: View {
     @Environment(Session.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +31,8 @@ struct CaptureView: View {
     // cards stagger up so you watch each note settle on its person/topic.
     @State private var revealed = false
     @State private var landed = false
+    @State private var showingVoice = false        // Theme C C1c: hold-to-talk sheet
+    @State private var voiceSavedToast = false
 
     var body: some View {
         NavigationStack {
@@ -58,12 +61,42 @@ struct CaptureView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }.tint(Theme.ink)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showingVoice = true } label: { Image(systemName: "mic.fill") }
+                        .tint(Theme.ink)
+                        .accessibilityLabel("Hold to talk")
+                }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") { hideKeyboard() }
                 }
             }
+            .sheet(isPresented: $showingVoice) {
+                // C1c: the UX runs on a stubbed engine; C1d wires on-device STT → ingest
+                // into onCaptured (and turns Undo into a real cancel/delete).
+                VoiceCaptureView(onCaptured: { _ in showVoiceSaved() }, onCancelled: {})
+            }
+            .overlay(alignment: .bottom) {
+                if voiceSavedToast {
+                    HStack(spacing: 14) {
+                        Text("Saved — filing overnight").font(.troveMono(12)).foregroundStyle(Theme.bg)
+                        Button("Undo") { voiceSavedToast = false }
+                            .font(.troveMono(12, .medium)).foregroundStyle(Theme.gold)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Theme.ink, in: Capsule())
+                    .padding(.bottom, 24)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(duration: 0.3), value: voiceSavedToast)
         }
+    }
+
+    private func showVoiceSaved() {
+        voiceSavedToast = true
+        Task { try? await Task.sleep(for: .seconds(3)); await MainActor.run { voiceSavedToast = false } }
     }
 
     // MARK: input
