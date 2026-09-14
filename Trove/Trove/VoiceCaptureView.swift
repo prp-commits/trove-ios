@@ -13,6 +13,9 @@ import SwiftUI
     /// Called frequently while listening: a 0…1 input level, elapsed seconds, and
     /// the running partial transcript.
     var onTick: ((CGFloat, TimeInterval, String) -> Void)? { get set }
+    /// Called if capture can't start / the recognizer fails, with a `reason_code`
+    /// (C1d). The stub never fails.
+    var onFailure: ((String) -> Void)? { get set }
     func start()
     func finish() -> String   // stop + return the final transcript
     func cancel()
@@ -22,6 +25,7 @@ import SwiftUI
 /// UX can be built and demoed before any real capture exists.
 @MainActor final class StubVoiceCaptureEngine: VoiceCaptureEngine {
     var onTick: ((CGFloat, TimeInterval, String) -> Void)?
+    var onFailure: ((String) -> Void)?      // never fires; the stub always "works"
     private var running = false
     private var startedAt = Date()
     private var text = ""
@@ -49,8 +53,10 @@ import SwiftUI
 }
 
 struct VoiceCaptureView: View {
-    /// Injected so C1d can swap the real engine without touching this view.
-    var makeEngine: () -> VoiceCaptureEngine = { StubVoiceCaptureEngine() }
+    /// The on-device engine by default (C1d); inject a stub for previews/tests.
+    var makeEngine: () -> VoiceCaptureEngine = { AppleVoiceCaptureEngine() }
+    /// Where this capture was launched from (C2 passes control/action_button/widget).
+    var launchSource: String = "in_app"
     var onCaptured: (String) -> Void
     var onCancelled: () -> Void
 
@@ -61,7 +67,7 @@ struct VoiceCaptureView: View {
     @State private var elapsed: TimeInterval = 0
     @State private var partial = ""
     @State private var cancelArmed = false
-    @State private var emptyNote = false
+    @State private var noteText: String?        // inline note: empty / failure copy (§7 state 8)
 
     private let barCount = 34
     private let cancelThreshold: CGFloat = -90      // drag up this far to arm cancel
@@ -111,9 +117,10 @@ struct VoiceCaptureView: View {
     }
 
     @ViewBuilder private var transcript: some View {
-        if emptyNote {
-            Text("Didn't catch that — try again.")
+        if let noteText {
+            Text(noteText)
                 .font(.troveMono(12)).foregroundStyle(Theme.danger)
+                .multilineTextAlignment(.center)
         } else if listening {
             Text(partial.isEmpty ? "…" : partial)
                 .font(.troveMono(13)).foregroundStyle(Theme.ink2)
@@ -156,16 +163,18 @@ struct VoiceCaptureView: View {
     // MARK: state transitions
 
     private func startListening() {
-        emptyNote = false
+        noteText = nil
         let e = makeEngine()
         e.onTick = { lvl, el, txt in
             elapsed = el; partial = txt
             levels.append(lvl)
             if levels.count > barCount { levels.removeFirst(levels.count - barCount) }
         }
+        e.onFailure = { code in handleFailure(code) }
         engine = e
         listening = true
         Haptics.commit()
+        Analytics.capture("voice_capture_started", ["launch_source": launchSource])
         e.start()
     }
 
@@ -173,11 +182,24 @@ struct VoiceCaptureView: View {
         let text = (engine?.finish() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         resetListening()
         guard !text.isEmpty else {          // §7 state 8 — empty: keep the user here, don't save nothing
-            emptyNote = true; Haptics.soft(); return
+            noteText = "Didn't catch that — try again."
+            Analytics.capture("voice_capture_failed", ["reason_code": "empty_transcript"])
+            Haptics.soft(); return
         }
         Haptics.success()
-        onCaptured(text)                    // parent dismisses + shows "Saved — filing overnight" + Undo
+        Analytics.capture("voice_capture_submitted", ["transcriber": "on_device_apple"])
+        onCaptured(text)                    // parent dismisses + shows the saved toast + Undo
         dismiss()
+    }
+
+    // §7 state 8 — the engine couldn't start / recognizer failed: keep the capture flow
+    // honest (never a silent fail), surface a note, and record the reason_code.
+    private func handleFailure(_ code: String) {
+        engine?.cancel()
+        resetListening()
+        Analytics.capture("voice_capture_failed", ["reason_code": code])
+        noteText = "Couldn't start recording — check mic access in Settings."
+        Haptics.soft()
     }
 
     private func cancelCapture() {
