@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct PulseView: View {
+    @Binding var receiptDeepLinkPeriod: String?         // Theme A slice 6: a tapped receipt push ("YYYY-MM")
     @Environment(Session.self) private var session
     @State private var state: Loadable<[PulseItem]> = .idle
     @State private var horizon: [HorizonItem] = []      // "On the Horizon" (D149)
     @State private var confirming: ConfirmTarget?
     @State private var receipt: MonthlyReceipt?         // Theme A: monthly "showed up" receipt
     @State private var showingReceipt = false
+    @State private var deepLinkedReceipt: MonthlyReceipt?   // slice 6: the receipt a push opened (may be a prior month)
+    @State private var showingDeepLinkedReceipt = false
 
     // An inferred-date event the user is confirming. "this week" has no real anchor,
     // so confirming opens a date picker (prefilled with the guess) to set the actual
@@ -99,8 +102,23 @@ struct PulseView: View {
         .sheet(isPresented: $showingReceipt) {
             if let receipt { ReceiptDetailView(receipt: receipt) }
         }
+        .sheet(isPresented: $showingDeepLinkedReceipt) {
+            if let deepLinkedReceipt { ReceiptDetailView(receipt: deepLinkedReceipt) }
+        }
         .task { if case .idle = state { await load() } }
         .onChange(of: session.dataVersion) { Task { await load() } }
+        // Theme A slice 6: a tapped "your month is ready" push opens THAT month's receipt
+        // (often a prior month, not the card's current one) and attributes the view to the
+        // nudge surface. `.task(id:)` covers both a live tap and a cold launch from the push.
+        .task(id: receiptDeepLinkPeriod) {
+            guard let period = receiptDeepLinkPeriod else { return }
+            if let r = try? await session.loadReceipt(month: period) {
+                deepLinkedReceipt = r
+                ReceiptAnalytics.viewedOnce(r, surface: "nudge")
+                showingDeepLinkedReceipt = true
+            }
+            receiptDeepLinkPeriod = nil   // consume the intent
+        }
     }
 
     // MARK: tile

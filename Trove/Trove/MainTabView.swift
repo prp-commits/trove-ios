@@ -26,6 +26,7 @@ struct MainTabView: View {
     @AppStorage("lastSeenFailedVideoJobId") private var lastSeenFailedVideoJobId = 0
     // D169: a tapped capture nudge opens the capture composer (not Review).
     @State private var showCaptureFromPush = false
+    @State private var receiptDeepLink: String?          // Theme A slice 6: period ("YYYY-MM") from a tapped receipt push
 
     var body: some View {
         TabView(selection: Binding(
@@ -57,7 +58,7 @@ struct MainTabView: View {
                 .tabItem { Label("Review", systemImage: "rectangle.portrait.on.rectangle.portrait") }
                 .tag(1)
 
-            PulseView()
+            PulseView(receiptDeepLinkPeriod: $receiptDeepLink)
                 .tabItem { Label("Pulse", systemImage: "waveform.path.ecg") }
                 .badge(pulseBadge ? " " : nil)   // (D227) native dot; empty string collapses to a dot
                 .tag(2)
@@ -162,6 +163,10 @@ struct MainTabView: View {
                 Analytics.capture("capture_nudge_opened", ["scenario": scenario ?? "unknown"])
                 CaptureNudgeTracker.noteTap(scenario: scenario)
                 showCaptureFromPush = true
+            } else if ref.hasPrefix("receipt") {
+                // Theme A slice 6: open the just-ended month's receipt in Pulse (tab 2).
+                receiptDeepLink = ref.split(separator: ":").dropFirst().first.map(String.init)
+                tab = 2
             } else if !ref.hasPrefix("video_failed") {
                 tab = 1
             }
