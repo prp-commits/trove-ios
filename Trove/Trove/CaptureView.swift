@@ -11,6 +11,10 @@ struct CaptureView: View {
     /// When set, a Note is pinned verbatim to this entity (manual add). Photo/Link
     /// still go through AI extraction and file by content.
     var pinnedEntity: (id: Int, name: String)? = nil
+    /// C2: when launched from the Action button / a Shortcut, open straight into voice
+    /// capture, tagging the launch_source.
+    var autoVoice = false
+    var voiceLaunchSource = "in_app"
 
     enum Mode: String, CaseIterable, Identifiable {
         case text = "Note", photo = "Photo", link = "Link"
@@ -36,6 +40,8 @@ struct CaptureView: View {
     @State private var voiceSavedToast = false
     @State private var voiceDeniedToast = false
     @State private var voiceIngestTask: Task<Void, Never>?
+    @State private var activeVoiceSource = "in_app"   // launch_source for the current voice capture
+    @State private var autoVoiceStarted = false
 
     var body: some View {
         NavigationStack {
@@ -77,7 +83,7 @@ struct CaptureView: View {
             .sheet(isPresented: $showingVoice) {
                 // C1d: on-device STT (AppleVoiceCaptureEngine) → onCaptured posts the
                 // transcript to /api/ingest {kind:text}; Undo cancels the in-flight ingest.
-                VoiceCaptureView(onCaptured: { saveVoice($0) }, onCancelled: {})
+                VoiceCaptureView(launchSource: activeVoiceSource, onCaptured: { saveVoice($0) }, onCancelled: {})
             }
             .sheet(isPresented: $showingVoicePriming) {
                 VoicePrimingView(
@@ -94,6 +100,13 @@ struct CaptureView: View {
             .overlay(alignment: .bottom) { voiceToast }
             .animation(.spring(duration: 0.3), value: voiceSavedToast)
             .animation(.spring(duration: 0.3), value: voiceDeniedToast)
+            .task {
+                // C2: launched from the Action button / Shortcut → open voice capture straight away.
+                if autoVoice && !autoVoiceStarted {
+                    autoVoiceStarted = true
+                    await startVoice(source: voiceLaunchSource)
+                }
+            }
         }
     }
 
@@ -122,7 +135,8 @@ struct CaptureView: View {
     }
 
     // Gate the mic on permission: granted → open; undetermined → prime first; denied → nudge to Settings.
-    private func startVoice() async {
+    private func startVoice(source: String = "in_app") async {
+        activeVoiceSource = source
         if VoicePermissions.bothGranted { showingVoice = true; return }
         if VoicePermissions.micStatus() == .denied || VoicePermissions.speechStatus() == .denied {
             flashVoiceDenied(); return
