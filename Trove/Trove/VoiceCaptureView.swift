@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Hold-to-talk voice capture — the §7 active-capture state machine (states 3–5),
+// Tap-to-toggle voice capture — the §7 active-capture state machine (states 3–5),
 // Theme C C1c. Built against a STUBBED engine so the whole interaction (waveform,
 // timer, live partial transcript, slide-to-cancel, release-to-save, haptics) is
 // exercisable with NO microphone/STT yet. C1d drops a real engine in behind the
@@ -66,11 +66,9 @@ struct VoiceCaptureView: View {
     @State private var levels: [CGFloat] = []      // rolling waveform buffer
     @State private var elapsed: TimeInterval = 0
     @State private var partial = ""
-    @State private var cancelArmed = false
     @State private var noteText: String?        // inline note: empty / failure copy (§7 state 8)
 
     private let barCount = 34
-    private let cancelThreshold: CGFloat = -90      // drag up this far to arm cancel
 
     var body: some View {
         ZStack {
@@ -83,8 +81,14 @@ struct VoiceCaptureView: View {
                     .opacity(listening ? 1 : 0)
                 transcript
                 Spacer()
-                holdButton
+                recordButton
                 hint
+                if listening {
+                    Button("Cancel") { cancelCapture() }
+                        .font(.troveMono(12, .medium))
+                        .foregroundStyle(Theme.danger)
+                        .padding(.top, 4)
+                }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 40)
@@ -97,7 +101,7 @@ struct VoiceCaptureView: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            Text(listening ? "Listening…" : "Hold to talk")
+            Text(listening ? "Listening…" : "Tap to record")
                 .font(.troveSerif(26)).foregroundStyle(Theme.ink)
             Label("On-device · private", systemImage: "lock.fill")
                 .font(.troveMono(11, .medium)).foregroundStyle(Theme.muted)
@@ -108,7 +112,7 @@ struct VoiceCaptureView: View {
         HStack(alignment: .center, spacing: 3) {
             ForEach(0..<barCount, id: \.self) { i in
                 Capsule()
-                    .fill(cancelArmed ? Theme.danger.opacity(0.6) : Theme.gold)
+                    .fill(Theme.gold)
                     .frame(width: 4, height: barHeight(i))
             }
         }
@@ -132,32 +136,27 @@ struct VoiceCaptureView: View {
         }
     }
 
-    private var holdButton: some View {
-        Circle()
-            .fill(listening ? (cancelArmed ? Theme.danger : Theme.accent) : Theme.accent)
-            .frame(width: 84, height: 84)
-            .overlay(
-                Image(systemName: cancelArmed ? "xmark" : "mic.fill")
-                    .font(.system(size: 30, weight: .semibold)).foregroundStyle(.white)
-            )
-            .scaleEffect(listening ? 1.12 : 1)
-            .animation(.spring(duration: 0.2), value: listening)
-            .animation(.easeOut(duration: 0.12), value: cancelArmed)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { g in
-                        if !listening { startListening() }
-                        cancelArmed = g.translation.height < cancelThreshold
-                    }
-                    .onEnded { _ in
-                        if cancelArmed { cancelCapture() } else { finishCapture() }
-                    }
-            )
+    private var recordButton: some View {
+        Button {
+            if listening { finishCapture() } else { startListening() }
+        } label: {
+            Circle()
+                .fill(listening ? Theme.danger : Theme.accent)
+                .frame(width: 84, height: 84)
+                .overlay(
+                    Image(systemName: listening ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 30, weight: .semibold)).foregroundStyle(.white)
+                )
+                .scaleEffect(listening ? 1.12 : 1)
+                .animation(.spring(duration: 0.2), value: listening)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(listening ? "Stop recording" : "Start recording")
     }
 
     private var hint: some View {
-        Text(listening ? (cancelArmed ? "Release to cancel" : "Slide up to cancel") : "Press and hold")
-            .font(.troveMono(11)).foregroundStyle(cancelArmed ? Theme.danger : Theme.muted)
+        Text(listening ? "Tap to stop" : "Tap to record")
+            .font(.troveMono(11)).foregroundStyle(Theme.muted)
     }
 
     // MARK: state transitions
@@ -211,7 +210,7 @@ struct VoiceCaptureView: View {
     }
 
     private func resetListening() {
-        listening = false; cancelArmed = false; levels = []; elapsed = 0; partial = ""; engine = nil
+        listening = false; levels = []; elapsed = 0; partial = ""; engine = nil
     }
 
     // MARK: helpers

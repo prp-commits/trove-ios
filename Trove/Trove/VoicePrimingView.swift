@@ -21,7 +21,7 @@ struct VoicePrimingView: View {
                     .font(.troveSerif(28))
                     .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
-                Text("Hold to talk and Trove files what matters — who you saw, what you said you'd do. On the free tier it's transcribed right on your phone; your audio never leaves your device.")
+                Text("Tap to record and Trove files what matters — who you saw, what you said you'd do. On the free tier it's transcribed right on your phone; your audio never leaves your device.")
                     .font(.troveMono(13))
                     .foregroundStyle(Theme.ink2)
                     .multilineTextAlignment(.center)

@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 
 /// The capture sheet — the AI ingest path. Note / Photo / Link → POST /api/ingest.
-/// Voice (Theme C) is a first-class hold-to-talk surface — the mic in the nav bar
+/// Voice (Theme C) is a first-class tap-to-record surface — the mic in the nav bar
 /// opens `VoiceCaptureView` (C1c UX; C1d wires on-device STT → ingest).
 struct CaptureView: View {
     @Environment(Session.self) private var session
@@ -67,7 +67,7 @@ struct CaptureView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button { Task { await startVoice() } } label: { Image(systemName: "mic.fill") }
                         .tint(Theme.ink)
-                        .accessibilityLabel("Hold to talk")
+                        .accessibilityLabel("Record a voice note")
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
