@@ -578,6 +578,8 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "Trove uses your contacts to put names to the people you meet with and to remember their birthdays. It never adds your whole address book to your library.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Trove records what you say so it can file it into your library. On the free tier your audio is transcribed on your device and never leaves your phone.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Trove turns what you say into text for your library. On the free tier this uses on-device speech recognition — nothing is sent to a server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -616,6 +618,8 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Trove reads who you meet with to notice when someone you care about goes quiet, so it can gently remind you to reach out. Your calendar stays private to your account.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "Trove uses your contacts to put names to the people you meet with and to remember their birthdays. It never adds your whole address book to your library.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Trove records what you say so it can file it into your library. On the free tier your audio is transcribed on your device and never leaves your phone.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Trove turns what you say into text for your library. On the free tier this uses on-device speech recognition — nothing is sent to a server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
