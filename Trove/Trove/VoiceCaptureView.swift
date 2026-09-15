@@ -69,6 +69,7 @@ struct VoiceCaptureView: View {
     @State private var partial = ""
     @State private var noteText: String?        // inline note: empty / failure copy (§7 state 8)
     @State private var savedText: String?       // the captured transcript, shown as confirmation before dismiss
+    @State private var autoStarted = false      // reflex-launch auto-start guard (fires once)
 
     private let barCount = 34
 
@@ -82,9 +83,10 @@ struct VoiceCaptureView: View {
                 VStack(spacing: 22) {
                     header
                     Spacer()
-                    waveform
-                    Text(timeLabel).font(.troveMono(13, .medium)).foregroundStyle(Theme.muted)
-                        .opacity(listening ? 1 : 0)
+                    if listening {   // only show the live meter + timer while actually recording
+                        waveform
+                        Text(timeLabel).font(.troveMono(13, .medium)).foregroundStyle(Theme.muted)
+                    }
                     transcript
                     Spacer()
                     recordButton
@@ -100,6 +102,17 @@ struct VoiceCaptureView: View {
                 .padding(.vertical, 40)
                 .frame(maxWidth: 520)
             }
+        }
+        .task {
+            // Polish: the reflex launch (Action button / Control) auto-starts recording — a true
+            // "press → talk". A short beat lets the cover settle so the first words aren't clipped;
+            // the in-app mic (source "in_app") still waits for a deliberate tap. Permission is
+            // already granted here (the flow gates on it before presenting).
+            guard launchSource != "in_app", !autoStarted, !listening, savedText == nil,
+                  VoicePermissions.bothGranted else { return }
+            autoStarted = true
+            try? await Task.sleep(for: .milliseconds(350))
+            if savedText == nil, !listening { startListening() }
         }
         .overlay(alignment: .topLeading) {
             // Full-screen cover (no swipe-to-dismiss) — an always-present close, except during
@@ -134,7 +147,13 @@ struct VoiceCaptureView: View {
             Button("Undo") { onUndo(); onCancelled(); dismiss() }
                 .font(.troveMono(12, .medium)).foregroundStyle(Theme.gold)
                 .padding(.top, 6)
+            Text("Tap anywhere to dismiss").font(.troveMono(10)).foregroundStyle(Theme.muted)
+                .padding(.top, 2)
         }
+        // Tap-to-dismiss (Undo's button consumes its own tap first); auto-dismiss is the fallback.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { dismiss() }
         .transition(.opacity)
     }
 
@@ -142,8 +161,9 @@ struct VoiceCaptureView: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            Text(listening ? "Listening…" : "Tap to record")
+            Text(listening ? "Listening…" : "What's on your mind?")
                 .font(.troveSerif(26)).foregroundStyle(Theme.ink)
+                .multilineTextAlignment(.center)
             Label("On-device · private", systemImage: "lock.fill")
                 .font(.troveMono(11, .medium)).foregroundStyle(Theme.muted)
         }
@@ -196,7 +216,7 @@ struct VoiceCaptureView: View {
     }
 
     private var hint: some View {
-        Text(listening ? "Tap to stop" : "Tap to record")
+        Text(listening ? "Tap to stop" : "Tap the mic and just talk")
             .font(.troveMono(11)).foregroundStyle(Theme.muted)
     }
 
@@ -231,7 +251,7 @@ struct VoiceCaptureView: View {
         onCaptured(text)                    // ingest fires in the background (never lost to the dismiss)
         // Show WHAT was captured for a beat (never a silent resolve), then auto-dismiss.
         withAnimation(.easeInOut(duration: 0.2)) { savedText = text }
-        Task { try? await Task.sleep(for: .seconds(2)); dismiss() }
+        Task { try? await Task.sleep(for: .seconds(4)); dismiss() }   // fallback; tap dismisses sooner
     }
 
     // §7 state 8 — the engine couldn't start / recognizer failed: keep the capture flow
