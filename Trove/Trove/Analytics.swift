@@ -91,6 +91,7 @@ enum Analytics {
         guard !optedOut, let vk = aKey("value") else { return }
         defaults.set(true, forKey: vk)
         checkActivation()
+        WTPSurvey.noteValueMoment()   // Theme B B2 — the WTP probe rides the same value-moment signal (demo already excluded here)
     }
 
     private static func checkActivation() {

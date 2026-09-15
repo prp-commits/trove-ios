@@ -29,6 +29,7 @@ struct MainTabView: View {
     @State private var showCaptureFromPush = false
     @State private var receiptDeepLink: String?          // Theme A slice 6: period ("YYYY-MM") from a tapped receipt push
     @State private var voiceTrigger: VoiceTrigger?       // Theme C C2: Action-button / Shortcut voice launch
+    @State private var showWTPSurvey = false             // Theme B B2: willingness-to-pay probe
 
     var body: some View {
         TabView(selection: Binding(
@@ -145,6 +146,9 @@ struct MainTabView: View {
             voiceTrigger = VoiceTrigger(source: note.userInfo?["source"] as? String ?? "action_button")
             VoiceLaunch.pendingSource = nil
         }
+        // Theme B B2: the WTP probe, surfaced a beat after a value moment (once, ever).
+        .onReceive(NotificationCenter.default.publisher(for: .troveWTPSurvey)) { _ in showWTPSurvey = true }
+        .sheet(isPresented: $showWTPSurvey) { DisappointmentSurveyView() }
         .task {
             // Cold launch: the intent ran before this view was listening — consume the pending source.
             if let src = VoiceLaunch.pendingSource {
