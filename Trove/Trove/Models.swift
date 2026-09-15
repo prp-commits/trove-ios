@@ -12,6 +12,9 @@ struct User: Decodable, Identifiable, Sendable {
     let photoUrl: String?
     let provider: String?
     let emailVerified: Bool?
+    let tier: String?                  // Theme B B1: entitlements tier ("free" | "premium")
+
+    var isPremium: Bool { tier == "premium" }
 
     var displayName: String {
         if let name, !name.isEmpty { return name }
