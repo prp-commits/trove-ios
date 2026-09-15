@@ -62,7 +62,7 @@ private struct VoiceCaptureModifier: ViewModifier {
     // Instant handoff (§7 state 4): fire the ingest in the background, show the toast; Undo cancels it.
     private func saveVoice(_ text: String) {
         ingestTask?.cancel()
-        ingestTask = Task { _ = try? await session.ingestText(text); if !Task.isCancelled { onIngested() } }
+        ingestTask = Task { _ = try? await session.ingestText(text, source: "voice"); if !Task.isCancelled { onIngested() } }
     }
 
     private func flashDenied() {

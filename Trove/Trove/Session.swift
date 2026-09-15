@@ -158,11 +158,15 @@ final class Session {
     }
 
     // Capture (M2) — the AI ingest path.
-    func ingestText(_ text: String, title: String? = nil) async throws -> IngestResponse {
+    // `source` tags the capture origin for analytics only (Theme C C5): "text" for a
+    // typed note, "voice" for an on-device voice capture — so voice is separable in the
+    // funnel (% of captures via voice, adoption, the young-delete trust signal). The
+    // request body is unchanged; the transcript ingests as text like any other note.
+    func ingestText(_ text: String, title: String? = nil, source: String = "text") async throws -> IngestResponse {
         let cleanTitle = (title?.isEmpty ?? true) ? nil : title
         let res: IngestResponse = try await api.request("/api/ingest", .post, body: IngestText(text: text, title: cleanTitle))
         dataVersion += 1
-        Analytics.capture("ingest_completed", ["kind": "text", "count": res.count])
+        Analytics.capture("ingest_completed", ["kind": source, "count": res.count])
         Analytics.noteCapture()
         return res
     }
