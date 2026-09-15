@@ -17,14 +17,18 @@ private struct VoiceCaptureModifier: ViewModifier {
     @State private var source = "in_app"
     @State private var showingCapture = false
     @State private var showingPriming = false
-    @State private var savedToast = false
     @State private var deniedToast = false
     @State private var ingestTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
             .fullScreenCover(isPresented: $showingCapture) {
-                VoiceCaptureView(launchSource: source, onCaptured: { saveVoice($0) }, onCancelled: {})
+                // The confirmation of WHAT was captured (+ Undo) lives inside VoiceCaptureView now,
+                // so there's no separate saved-toast here — just the denied toast below.
+                VoiceCaptureView(launchSource: source,
+                                 onCaptured: { saveVoice($0) },
+                                 onCancelled: {},
+                                 onUndo: { ingestTask?.cancel() })
             }
             .sheet(isPresented: $showingPriming) {
                 VoicePrimingView(
@@ -39,7 +43,6 @@ private struct VoiceCaptureModifier: ViewModifier {
                 )
             }
             .overlay(alignment: .bottom) { toast }
-            .animation(.spring(duration: 0.3), value: savedToast)
             .animation(.spring(duration: 0.3), value: deniedToast)
             .onChange(of: trigger) { _, t in
                 guard let t else { return }
@@ -60,27 +63,15 @@ private struct VoiceCaptureModifier: ViewModifier {
     private func saveVoice(_ text: String) {
         ingestTask?.cancel()
         ingestTask = Task { _ = try? await session.ingestText(text); if !Task.isCancelled { onIngested() } }
-        deniedToast = false; savedToast = true
-        Task { try? await Task.sleep(for: .seconds(3)); await MainActor.run { savedToast = false } }
     }
 
     private func flashDenied() {
-        savedToast = false; deniedToast = true
+        deniedToast = true
         Task { try? await Task.sleep(for: .seconds(3)); await MainActor.run { deniedToast = false } }
     }
 
     @ViewBuilder private var toast: some View {
-        if savedToast {
-            HStack(spacing: 14) {
-                Text("Saved to Trove").font(.troveMono(12)).foregroundStyle(Theme.bg)
-                Button("Undo") { ingestTask?.cancel(); savedToast = false }
-                    .font(.troveMono(12, .medium)).foregroundStyle(Theme.gold)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(Theme.ink, in: Capsule()).padding(.bottom, 24)
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if deniedToast {
+        if deniedToast {
             Text("Enable microphone & speech in Settings to use voice")
                 .font(.troveMono(12)).foregroundStyle(Theme.bg).multilineTextAlignment(.center)
                 .padding(.horizontal, 16).padding(.vertical, 10)

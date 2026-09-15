@@ -59,6 +59,7 @@ struct VoiceCaptureView: View {
     var launchSource: String = "in_app"
     var onCaptured: (String) -> Void
     var onCancelled: () -> Void
+    var onUndo: () -> Void = {}   // cancel the in-flight ingest from the saved-confirmation
 
     @Environment(\.dismiss) private var dismiss
     @State private var engine: VoiceCaptureEngine?
@@ -67,46 +68,74 @@ struct VoiceCaptureView: View {
     @State private var elapsed: TimeInterval = 0
     @State private var partial = ""
     @State private var noteText: String?        // inline note: empty / failure copy (§7 state 8)
+    @State private var savedText: String?       // the captured transcript, shown as confirmation before dismiss
 
     private let barCount = 34
 
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
-            VStack(spacing: 22) {
-                header
-                Spacer()
-                waveform
-                Text(timeLabel).font(.troveMono(13, .medium)).foregroundStyle(Theme.muted)
-                    .opacity(listening ? 1 : 0)
-                transcript
-                Spacer()
-                recordButton
-                hint
-                if listening {
-                    Button("Cancel") { cancelCapture() }
-                        .font(.troveMono(12, .medium))
-                        .foregroundStyle(Theme.danger)
-                        .padding(.top, 4)
+            if let savedText {
+                savedConfirmation(savedText)
+                    .padding(.horizontal, 28).frame(maxWidth: 520)
+            } else {
+                VStack(spacing: 22) {
+                    header
+                    Spacer()
+                    waveform
+                    Text(timeLabel).font(.troveMono(13, .medium)).foregroundStyle(Theme.muted)
+                        .opacity(listening ? 1 : 0)
+                    transcript
+                    Spacer()
+                    recordButton
+                    hint
+                    if listening {
+                        Button("Cancel") { cancelCapture() }
+                            .font(.troveMono(12, .medium))
+                            .foregroundStyle(Theme.danger)
+                            .padding(.top, 4)
+                    }
                 }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 40)
+                .frame(maxWidth: 520)
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 40)
-            .frame(maxWidth: 520)
         }
         .overlay(alignment: .topLeading) {
-            // Presented as a full-screen cover (no swipe-to-dismiss) — an always-present close.
-            Button {
-                if listening { cancelCapture() } else { onCancelled(); dismiss() }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.muted)
-                    .padding(12)
+            // Full-screen cover (no swipe-to-dismiss) — an always-present close, except during
+            // the brief saved-confirmation beat which dismisses itself.
+            if savedText == nil {
+                Button {
+                    if listening { cancelCapture() } else { onCancelled(); dismiss() }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.muted)
+                        .padding(12)
+                }
+                .accessibilityLabel("Close")
+                .padding(8)
             }
-            .accessibilityLabel("Close")
-            .padding(8)
         }
+    }
+
+    // Confirmation: shows WHAT was captured (the transcript) so a voice note never resolves
+    // silently, then auto-dismisses. The ingest is already running in the background.
+    private func savedConfirmation(_ text: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 46)).foregroundStyle(Theme.gold)
+            Text("Saved to Trove").font(.troveSerif(26)).foregroundStyle(Theme.ink)
+            Text("“\(text)”")
+                .font(.troveMono(13)).foregroundStyle(Theme.ink2)
+                .multilineTextAlignment(.center).lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Filing the details now.").font(.troveMono(11)).foregroundStyle(Theme.muted)
+            Button("Undo") { onUndo(); onCancelled(); dismiss() }
+                .font(.troveMono(12, .medium)).foregroundStyle(Theme.gold)
+                .padding(.top, 6)
+        }
+        .transition(.opacity)
     }
 
     // MARK: pieces
@@ -199,8 +228,10 @@ struct VoiceCaptureView: View {
         }
         Haptics.success()
         Analytics.capture("voice_capture_submitted", ["transcriber": "on_device_apple"])
-        onCaptured(text)                    // parent dismisses + shows the saved toast + Undo
-        dismiss()
+        onCaptured(text)                    // ingest fires in the background (never lost to the dismiss)
+        // Show WHAT was captured for a beat (never a silent resolve), then auto-dismiss.
+        withAnimation(.easeInOut(duration: 0.2)) { savedText = text }
+        Task { try? await Task.sleep(for: .seconds(2)); dismiss() }
     }
 
     // §7 state 8 — the engine couldn't start / recognizer failed: keep the capture flow

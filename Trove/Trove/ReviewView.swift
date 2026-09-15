@@ -499,7 +499,9 @@ struct ReviewView: View {
             // sides' notes (connection) — same "evidence below the nudge" treatment.
             if (isConnection || isTogether), !cites.isEmpty {
                 Rectangle().fill(Theme.line).frame(height: 1)
-                ForEach(cites) { c in
+                // Cap the evidence so the card stays glanceable + swipeable (the full set lives on
+                // the profile) — an uncapped list overflowed the card off both screen edges.
+                ForEach(cites.prefix(3)) { c in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("• \(c.text)").font(.troveMono(12)).foregroundStyle(Theme.ink2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -507,6 +509,9 @@ struct ReviewView: View {
                             Text(name).font(.troveMono(10)).foregroundStyle(Theme.muted)
                         }
                     }
+                }
+                if cites.count > 3 {
+                    Text("+\(cites.count - 3) more").font(.troveMono(11)).foregroundStyle(Theme.muted)
                 }
             } else if let insights = o.insights, !insights.isEmpty {
                 Rectangle().fill(Theme.line).frame(height: 1)
@@ -539,6 +544,9 @@ struct ReviewView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+        // Clip content to the card so an unusually long note can never bleed past the
+        // card edges onto the status bar / tab bar (belt-and-braces with the prefix caps).
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
     }
 
