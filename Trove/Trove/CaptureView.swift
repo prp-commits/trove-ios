@@ -11,10 +11,6 @@ struct CaptureView: View {
     /// When set, a Note is pinned verbatim to this entity (manual add). Photo/Link
     /// still go through AI extraction and file by content.
     var pinnedEntity: (id: Int, name: String)? = nil
-    /// C2: when launched from the Action button / a Shortcut, open straight into voice
-    /// capture, tagging the launch_source.
-    var autoVoice = false
-    var voiceLaunchSource = "in_app"
 
     enum Mode: String, CaseIterable, Identifiable {
         case text = "Note", photo = "Photo", link = "Link"
@@ -35,13 +31,7 @@ struct CaptureView: View {
     // cards stagger up so you watch each note settle on its person/topic.
     @State private var revealed = false
     @State private var landed = false
-    @State private var showingVoice = false        // Theme C C1c: hold-to-talk sheet
-    @State private var showingVoicePriming = false // C1d: permission priming before the mic opens
-    @State private var voiceSavedToast = false
-    @State private var voiceDeniedToast = false
-    @State private var voiceIngestTask: Task<Void, Never>?
-    @State private var activeVoiceSource = "in_app"   // launch_source for the current voice capture
-    @State private var autoVoiceStarted = false
+    @State private var voiceTrigger: VoiceTrigger?   // Theme C: drives the shared .voiceCapture flow
 
     var body: some View {
         NavigationStack {
@@ -71,7 +61,7 @@ struct CaptureView: View {
                     Button("Close") { dismiss() }.tint(Theme.ink)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { Task { await startVoice() } } label: { Image(systemName: "mic.fill") }
+                    Button { voiceTrigger = VoiceTrigger(source: "in_app") } label: { Image(systemName: "mic.fill") }
                         .tint(Theme.ink)
                         .accessibilityLabel("Record a voice note")
                 }
@@ -80,88 +70,8 @@ struct CaptureView: View {
                     Button("Done") { hideKeyboard() }
                 }
             }
-            .sheet(isPresented: $showingVoice) {
-                // C1d: on-device STT (AppleVoiceCaptureEngine) → onCaptured posts the
-                // transcript to /api/ingest {kind:text}; Undo cancels the in-flight ingest.
-                VoiceCaptureView(launchSource: activeVoiceSource, onCaptured: { saveVoice($0) }, onCancelled: {})
-            }
-            .sheet(isPresented: $showingVoicePriming) {
-                VoicePrimingView(
-                    onEnable: {
-                        Task {
-                            let ok = await VoicePermissions.request()
-                            showingVoicePriming = false
-                            if ok { showingVoice = true } else { flashVoiceDenied() }
-                        }
-                    },
-                    onSkip: { showingVoicePriming = false }
-                )
-            }
-            .overlay(alignment: .bottom) { voiceToast }
-            .animation(.spring(duration: 0.3), value: voiceSavedToast)
-            .animation(.spring(duration: 0.3), value: voiceDeniedToast)
-            .task {
-                // C2: launched from the Action button / Shortcut → open voice capture straight away.
-                if autoVoice && !autoVoiceStarted {
-                    autoVoiceStarted = true
-                    await startVoice(source: voiceLaunchSource)
-                }
-            }
+            .voiceCapture($voiceTrigger, onIngested: onIngested)
         }
-    }
-
-    @ViewBuilder private var voiceToast: some View {
-        if voiceSavedToast {
-            HStack(spacing: 14) {
-                Text("Saved to Trove").font(.troveMono(12)).foregroundStyle(Theme.bg)
-                Button("Undo") { voiceIngestTask?.cancel(); voiceSavedToast = false }
-                    .font(.troveMono(12, .medium)).foregroundStyle(Theme.gold)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(Theme.ink, in: Capsule())
-            .padding(.bottom, 24)
-            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else if voiceDeniedToast {
-            Text("Enable microphone & speech in Settings to use voice")
-                .font(.troveMono(12)).foregroundStyle(Theme.bg)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(Theme.ink, in: Capsule())
-                .padding(.bottom, 24)
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
-    // Gate the mic on permission: granted → open; undetermined → prime first; denied → nudge to Settings.
-    private func startVoice(source: String = "in_app") async {
-        activeVoiceSource = source
-        if VoicePermissions.bothGranted { showingVoice = true; return }
-        if VoicePermissions.micStatus() == .denied || VoicePermissions.speechStatus() == .denied {
-            flashVoiceDenied(); return
-        }
-        showingVoicePriming = true
-    }
-
-    // Instant handoff (§7 state 4): fire the ingest in the background, show the toast; Undo cancels it.
-    private func saveVoice(_ text: String) {
-        voiceIngestTask?.cancel()
-        voiceIngestTask = Task {
-            _ = try? await session.ingestText(text)
-            if !Task.isCancelled { onIngested() }
-        }
-        showVoiceSaved()
-    }
-
-    private func showVoiceSaved() {
-        voiceDeniedToast = false; voiceSavedToast = true
-        Task { try? await Task.sleep(for: .seconds(3)); await MainActor.run { voiceSavedToast = false } }
-    }
-
-    private func flashVoiceDenied() {
-        voiceSavedToast = false; voiceDeniedToast = true
-        Task { try? await Task.sleep(for: .seconds(3)); await MainActor.run { voiceDeniedToast = false } }
     }
 
     // MARK: input

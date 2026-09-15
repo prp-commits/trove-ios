@@ -28,8 +28,7 @@ struct MainTabView: View {
     // D169: a tapped capture nudge opens the capture composer (not Review).
     @State private var showCaptureFromPush = false
     @State private var receiptDeepLink: String?          // Theme A slice 6: period ("YYYY-MM") from a tapped receipt push
-    @State private var showVoiceLaunch = false           // Theme C C2: Action-button / Shortcut voice launch
-    @State private var voiceLaunchSource = "in_app"
+    @State private var voiceTrigger: VoiceTrigger?       // Theme C C2: Action-button / Shortcut voice launch
 
     var body: some View {
         TabView(selection: Binding(
@@ -139,20 +138,17 @@ struct MainTabView: View {
         .sheet(isPresented: $showCaptureFromPush, onDismiss: { notifications.pendingCaptureScenario = nil }) {
             CaptureView(onIngested: {})   // ingest success emits capture_after_nudge via the tracker
         }
-        // C2: the Action button / a Shortcut launches straight into voice capture (tab-level so it
-        // opens from anywhere). CaptureView auto-starts the voice flow with the launch_source.
-        .sheet(isPresented: $showVoiceLaunch) {
-            CaptureView(onIngested: {}, autoVoice: true, voiceLaunchSource: voiceLaunchSource)
-        }
+        // C2: the Action button / a Shortcut launches STRAIGHT into the voice capture surface
+        // (D248 — the shared .voiceCapture flow presents it full-screen; no composer, no sheet-on-sheet).
+        .voiceCapture($voiceTrigger)
         .onReceive(NotificationCenter.default.publisher(for: .troveVoiceCapture)) { note in
-            voiceLaunchSource = note.userInfo?["source"] as? String ?? "action_button"
+            voiceTrigger = VoiceTrigger(source: note.userInfo?["source"] as? String ?? "action_button")
             VoiceLaunch.pendingSource = nil
-            showVoiceLaunch = true
         }
         .task {
             // Cold launch: the intent ran before this view was listening — consume the pending source.
             if let src = VoiceLaunch.pendingSource {
-                voiceLaunchSource = src; VoiceLaunch.pendingSource = nil; showVoiceLaunch = true
+                voiceTrigger = VoiceTrigger(source: src); VoiceLaunch.pendingSource = nil
             }
         }
         // Tap routing. A capture nudge → the composer (+ capture_nudge_opened, and stamp the tap so

@@ -94,7 +94,19 @@ struct VoiceCaptureView: View {
             .padding(.vertical, 40)
             .frame(maxWidth: 520)
         }
-        .interactiveDismissDisabled(listening)   // don't let a swipe kill an in-progress capture
+        .overlay(alignment: .topLeading) {
+            // Presented as a full-screen cover (no swipe-to-dismiss) — an always-present close.
+            Button {
+                if listening { cancelCapture() } else { onCancelled(); dismiss() }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+                    .padding(12)
+            }
+            .accessibilityLabel("Close")
+            .padding(8)
+        }
     }
 
     // MARK: pieces
