@@ -14,7 +14,7 @@ extension Notification.Name {
 enum WTPSurvey {
     private static let doneKey = "wtp.done"            // shown once, ever
     private static let countKey = "wtp.valueMoments"
-    private static let surveyAfter = 2                 // ask only once value is real (2nd+ moment)
+    private static let surveyAfter = 5                 // ask only once value is real (5th+ moment — more app experience before we probe needs)
 
     static var isDone: Bool { UserDefaults.standard.bool(forKey: doneKey) }
     static func markDone() { UserDefaults.standard.set(true, forKey: doneKey) }
