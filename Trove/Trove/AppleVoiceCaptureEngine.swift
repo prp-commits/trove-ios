@@ -16,10 +16,11 @@ import Speech
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var startedAt = Date()
-    private var latest = ""
+    private var committed = ""   // finalized segments, joined — survives the recognizer resetting after a pause
+    private var latest = ""      // committed + the in-progress partial; what finish() returns
 
     func start() {
-        startedAt = Date(); latest = ""
+        startedAt = Date(); latest = ""; committed = ""
         guard let recognizer, recognizer.isAvailable else { onFailure?("stt_failed"); return }
         do {
             let session = AVAudioSession.sharedInstance()
@@ -44,7 +45,20 @@ import Speech
             task = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    if let result { self.latest = result.bestTranscription.formattedString }
+                    if let result {
+                        // On-device recognition finalizes an utterance after a pause, then starts a
+                        // FRESH transcription for what follows — so each result's formattedString is
+                        // only the current utterance, not the running total. Commit finalized segments
+                        // and keep the whole note; assigning `latest` directly would erase everything
+                        // before the pause.
+                        let segment = result.bestTranscription.formattedString
+                        if result.isFinal {
+                            self.committed = Self.join(self.committed, segment)
+                            self.latest = self.committed
+                        } else {
+                            self.latest = Self.join(self.committed, segment)
+                        }
+                    }
                     if error != nil, self.latest.isEmpty { self.onFailure?("stt_failed") }
                 }
             }
@@ -62,7 +76,16 @@ import Speech
     func cancel() {
         task?.cancel()
         teardown()
-        latest = ""
+        latest = ""; committed = ""
+    }
+
+    /// Join two transcript fragments with a single space, tolerating either being empty.
+    private static func join(_ a: String, _ b: String) -> String {
+        let head = a.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tail = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        if head.isEmpty { return tail }
+        if tail.isEmpty { return head }
+        return head + " " + tail
     }
 
     private func emit(level: CGFloat) {
