@@ -16,11 +16,12 @@ import Speech
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var startedAt = Date()
-    private var committed = ""   // finalized segments, joined — survives the recognizer resetting after a pause
-    private var latest = ""      // committed + the in-progress partial; what finish() returns
+    private var committed = ""   // utterances already banked (everything before the current one)
+    private var current = ""     // the in-progress utterance's latest partial
+    private var latest = ""      // committed + current — the whole note; what finish() returns
 
     func start() {
-        startedAt = Date(); latest = ""; committed = ""
+        startedAt = Date(); latest = ""; committed = ""; current = ""
         guard let recognizer, recognizer.isAvailable else { onFailure?("stt_failed"); return }
         do {
             let session = AVAudioSession.sharedInstance()
@@ -46,18 +47,25 @@ import Speech
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if let result {
-                        // On-device recognition finalizes an utterance after a pause, then starts a
-                        // FRESH transcription for what follows — so each result's formattedString is
-                        // only the current utterance, not the running total. Commit finalized segments
-                        // and keep the whole note; assigning `latest` directly would erase everything
-                        // before the pause.
-                        let segment = result.bestTranscription.formattedString
-                        if result.isFinal {
-                            self.committed = Self.join(self.committed, segment)
-                            self.latest = self.committed
-                        } else {
-                            self.latest = Self.join(self.committed, segment)
+                        // On-device recognition restarts `formattedString` at each new utterance after
+                        // a pause, and only flags `isFinal` once at the very end — so by the time a
+                        // final arrives it holds ONLY the last utterance. Relying on `isFinal` (or on a
+                        // plain assignment) therefore drops everything before the last pause. Instead we
+                        // watch the partials: when one arrives that isn't a continuation of the current
+                        // utterance, the recognizer has restarted — bank the current utterance into
+                        // `committed` before the new partial overwrites it.
+                        let text = result.bestTranscription.formattedString
+                        if !text.isEmpty {
+                            if Self.restarted(from: self.current, to: text) {
+                                self.committed = Self.join(self.committed, self.current)
+                            }
+                            self.current = text
                         }
+                        if result.isFinal {
+                            self.committed = Self.join(self.committed, self.current)
+                            self.current = ""
+                        }
+                        self.latest = Self.join(self.committed, self.current)
                     }
                     if error != nil, self.latest.isEmpty { self.onFailure?("stt_failed") }
                 }
@@ -76,7 +84,7 @@ import Speech
     func cancel() {
         task?.cancel()
         teardown()
-        latest = ""; committed = ""
+        latest = ""; committed = ""; current = ""
     }
 
     /// Join two transcript fragments with a single space, tolerating either being empty.
@@ -86,6 +94,16 @@ import Speech
         if head.isEmpty { return tail }
         if tail.isEmpty { return head }
         return head + " " + tail
+    }
+
+    /// True when `next` is a brand-new utterance rather than a continuation of `prev`.
+    /// Partials within one utterance grow (or lightly revise) from the same start, so one
+    /// is a prefix of the other. When the recognizer restarts after a pause the new partial
+    /// diverges from the start AND isn't longer — that's the boundary we bank on.
+    private static func restarted(from prev: String, to next: String) -> Bool {
+        guard !prev.isEmpty else { return false }
+        if next.hasPrefix(prev) || prev.hasPrefix(next) { return false }
+        return next.count <= prev.count
     }
 
     private func emit(level: CGFloat) {
