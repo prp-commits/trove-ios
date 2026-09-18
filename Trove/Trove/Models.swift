@@ -663,6 +663,7 @@ struct IngestResponse: Decodable, Sendable {
     let sourceId: Int?
     let count: Int
     let insights: [IngestedInsight]
+    let commitments: [IngestedCommitment]?   // Theme D (D3b): for the uncertainty-gated capture confirm
     // (server also returns `primaryEntity` {name,type} and `ambiguous[]`; unused here)
 
     struct IngestedInsight: Decodable, Identifiable, Sendable {
@@ -676,6 +677,23 @@ struct IngestResponse: Decodable, Sendable {
             let created: Bool?
         }
     }
+
+    struct IngestedCommitment: Decodable, Identifiable, Sendable {
+        let id: Int
+        let kind: String
+        let text: String
+        let counterparty: String?
+        let confidence: Double
+    }
+}
+
+// A commitment the client offers to confirm at capture, when the extraction was
+// low-confidence (§1.5). Carries only what the confirm sheet needs.
+struct PendingCommitmentConfirm: Identifiable, Equatable {
+    let id: Int
+    let kind: String
+    let text: String
+    var isQuestion: Bool { kind == "open_question" }
 }
 
 // MARK: - Receipts (Theme A — the monthly "showed up" reflection)

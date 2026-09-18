@@ -168,6 +168,7 @@ final class Session {
         dataVersion += 1
         Analytics.capture("ingest_completed", ["kind": source, "count": res.count])
         Analytics.noteCapture()
+        maybeOfferCommitmentConfirm(res)
         return res
     }
 
@@ -176,7 +177,30 @@ final class Session {
         dataVersion += 1
         Analytics.capture("ingest_completed", ["kind": "url", "count": res.count])
         Analytics.noteCapture()
+        maybeOfferCommitmentConfirm(res)
         return res
+    }
+
+    /// §1.5 uncertainty gate: if the capture produced a LOW-confidence commitment, offer a
+    /// one-tap confirm (never when confident — don't interrupt the reflex). One per capture.
+    static let commitmentConfirmThreshold = 0.75
+    private func maybeOfferCommitmentConfirm(_ res: IngestResponse) {
+        guard let low = (res.commitments ?? [])
+            .filter({ $0.confidence < Self.commitmentConfirmThreshold })
+            .min(by: { $0.confidence < $1.confidence }) else { return }
+        CommitmentConfirmInbox.pending = PendingCommitmentConfirm(id: low.id, kind: low.kind, text: low.text)
+        NotificationCenter.default.post(name: .troveCommitmentConfirm, object: nil)
+    }
+
+    /// D3b capture confirm — the user corrected what Trove heard (PATCH the text).
+    func editCommitment(_ id: Int, text: String) async {
+        _ = try? await api.request("/api/commitments/\(id)", .patch, body: TextRequest(text: text)) as OKResponse
+        dataVersion += 1
+    }
+    /// D3b capture confirm — the user rejected the extraction (hard delete, not a release).
+    func dismissCommitment(_ id: Int) async {
+        _ = try? await api.request("/api/commitments/\(id)", .delete) as OKResponse
+        dataVersion += 1
     }
 
     func ingestImage(base64: String, mediaType: String = "image/jpeg") async throws -> IngestResponse {

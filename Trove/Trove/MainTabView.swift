@@ -30,6 +30,7 @@ struct MainTabView: View {
     @State private var receiptDeepLink: String?          // Theme A slice 6: period ("YYYY-MM") from a tapped receipt push
     @State private var voiceTrigger: VoiceTrigger?       // Theme C C2: Action-button / Shortcut voice launch
     @State private var showWTPSurvey = false             // Theme B B2: willingness-to-pay probe
+    @State private var pendingCommitmentConfirm: PendingCommitmentConfirm?  // Theme D D3b: capture confirm
 
     var body: some View {
         TabView(selection: Binding(
@@ -149,6 +150,12 @@ struct MainTabView: View {
         // Theme B B2: the WTP probe, surfaced a beat after a value moment (once, ever).
         .onReceive(NotificationCenter.default.publisher(for: .troveWTPSurvey)) { _ in showWTPSurvey = true }
         .sheet(isPresented: $showWTPSurvey) { DisappointmentSurveyView() }
+        // Theme D D3b: the uncertainty-gated capture confirm (§1.5) — payload from the inbox.
+        .onReceive(NotificationCenter.default.publisher(for: .troveCommitmentConfirm)) { _ in
+            pendingCommitmentConfirm = CommitmentConfirmInbox.pending
+            CommitmentConfirmInbox.pending = nil
+        }
+        .sheet(item: $pendingCommitmentConfirm) { c in CommitmentConfirmView(commitment: c) }
         .task {
             // Cold launch: the intent ran before this view was listening — consume the pending source.
             if let src = VoiceLaunch.pendingSource {
