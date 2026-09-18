@@ -325,6 +325,28 @@ struct EntityRef: Decodable, Sendable {
     var isPerson: Bool { type == "person" }
 }
 
+// Theme D (D3) — a follow-through commitment the user made toward a person.
+// `due`/`reason` come from the server's pure selector (in_window | overdue |
+// dateless_floor | person_active). The surface shows the `due` ones.
+struct Commitment: Identifiable, Decodable, Sendable {
+    let id: Int
+    let kind: String            // "commitment" | "open_question"
+    let text: String
+    let counterparty: String?
+    let entity: EntityRef?      // the counterparty person, if resolved
+    let dueDate: String?        // "YYYY-MM-DD" or nil (dateless)
+    let createdAt: String
+    let snoozedUntil: String?
+    let due: Bool               // eligible to surface today
+    let reason: String?
+
+    var isQuestion: Bool { kind == "open_question" }
+    // Prefer the resolved entity name; fall back to the extracted counterparty label.
+    var personName: String? { entity?.name ?? counterparty }
+}
+
+struct CommitmentsResponse: Decodable, Sendable { let commitments: [Commitment] }
+
 struct NudgeCard: Decodable, Sendable {
     let entity: EntityRef
     let insights: [Insight]

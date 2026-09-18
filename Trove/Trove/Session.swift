@@ -358,6 +358,45 @@ final class Session {
         return try await api.request("/api/receipts/monthly")
     }
 
+    // MARK: - Commitments (Theme D, D3)
+
+    /// The user's active commitments, each annotated by the server selector with
+    /// `due`/`reason`. The surface shows the `due` ones (a promise in its window,
+    /// overdue, or a dateless one past its floor).
+    func loadCommitments() async throws -> [Commitment] {
+        let r: CommitmentsResponse = try await api.request("/api/commitments")
+        return r.commitments
+    }
+
+    /// "Kept your word" — the value moment. Fires `commitment_kept` + feeds the WTP probe.
+    func markCommitmentDone(_ id: Int, kind: String, reason: String?) async throws {
+        let _: OKResponse = try await api.request("/api/commitments/\(id)/done", .post)
+        dataVersion += 1
+        Analytics.capture("commitment_kept", ["kind": kind, "surface": "pulse", "reason": reason ?? "none"])
+        Analytics.noteValueMoment()   // kept a promise = an activation value moment (Theme B WTP)
+    }
+
+    /// "No longer relevant" — the shame-free exit (distinct from kept; not a failure).
+    func releaseCommitment(_ id: Int, kind: String) async throws {
+        let _: OKResponse = try await api.request("/api/commitments/\(id)/release", .post)
+        dataVersion += 1
+        Analytics.capture("commitment_released", ["kind": kind, "surface": "pulse"])
+    }
+
+    /// Snooze a commitment for N days (one-thumb "not now").
+    func snoozeCommitment(_ id: Int, days: Int = 3, kind: String) async {
+        struct Body: Encodable { let days: Int }
+        _ = try? await api.request("/api/commitments/\(id)/snooze", .post, body: Body(days: days)) as OKResponse
+        Analytics.capture("commitment_snoozed", ["kind": kind, "surface": "pulse", "days": days])
+        dataVersion += 1
+    }
+
+    /// Undo any resolution (kept / released / snoozed) — the commitment surfaces again.
+    func reopenCommitment(_ id: Int) async {
+        _ = try? await api.request("/api/commitments/\(id)/reopen", .post) as OKResponse
+        dataVersion += 1
+    }
+
     /// "Showed up" — marks an event acted (suppresses it in Pulse + the deck).
     func actEvent(_ id: Int) async throws {
         let _: OKResponse = try await api.request("/api/events/\(id)/act", .post)

@@ -10,6 +10,12 @@ struct PulseView: View {
     @State private var showingReceipt = false
     @State private var deepLinkedReceipt: MonthlyReceipt?   // slice 6: the receipt a push opened (may be a prior month)
     @State private var showingDeepLinkedReceipt = false
+    @State private var commitments: [Commitment] = []       // Theme D (D3): follow-through surface
+    @State private var commitmentUndo: CommitmentUndo?      // brief Undo after a resolve
+    @State private var surfacedCommitments = Set<Int>()     // fire commitment_surfaced once per id/run
+
+    /// A just-resolved commitment held for a one-tap Undo (kept/snoozed/released).
+    struct CommitmentUndo: Identifiable, Equatable { let id: Int; let label: String }
 
     // An inferred-date event the user is confirming. "this week" has no real anchor,
     // so confirming opens a date picker (prefilled with the guess) to set the actual
@@ -61,6 +67,8 @@ struct PulseView: View {
                     if let receipt {
                         ReceiptCard(receipt: receipt) { Haptics.soft(); showingReceipt = true }
                     }
+
+                    commitmentsSection()
 
                     switch state {
                     case .idle, .loading:
@@ -356,6 +364,131 @@ struct PulseView: View {
         }
     }
 
+    // MARK: Commitments (Theme D, D3) — the follow-through surface, folded into Pulse
+    // (no dedicated screen, §1.4). Shows only the DUE commitments the server selector
+    // returned; kept/snooze/release with a one-tap Undo. A "kept" is the value moment.
+
+    @ViewBuilder
+    private func commitmentsSection() -> some View {
+        let due = Array(commitments.filter { $0.due }.prefix(4))
+        if !due.isEmpty || commitmentUndo != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your word").font(.troveSerif(20)).foregroundStyle(Theme.ink)
+                    Spacer()
+                    Text("things you meant to do").font(.troveMono(11)).foregroundStyle(Theme.muted)
+                }
+                .padding(.top, 10)
+
+                ForEach(due) { commitmentCard($0) }
+                if let u = commitmentUndo { undoBar(u) }
+            }
+        }
+    }
+
+    private func commitmentCard(_ c: Commitment) -> some View {
+        let accent = c.isQuestion ? Color(hex: 0x6b8fc4) : Theme.gold
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(c.isQuestion ? "TO ASK" : "YOU SAID YOU'D")
+                    .font(.troveMono(10, .medium)).foregroundStyle(accent)
+                    .padding(.vertical, 3).padding(.horizontal, 9)
+                    .background(accent.opacity(0.14), in: Capsule())
+                if c.reason == "overdue" {
+                    Text("still owed").font(.troveMono(10, .medium)).foregroundStyle(Theme.muted)
+                        .padding(.vertical, 3).padding(.horizontal, 9)
+                        .background(Theme.bg, in: Capsule())
+                        .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                }
+                Spacer()
+                Menu {
+                    Button { snoozeCommitmentCard(c) } label: { Label("Snooze 3 days", systemImage: "clock") }
+                    Button(role: .destructive) { releaseCommitmentCard(c) } label: { Label("No longer relevant", systemImage: "xmark") }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.muted).frame(width: 28, height: 28)
+                }
+            }
+            Text(c.text).font(.troveSerif(18)).foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let person = c.personName {
+                if let e = c.entity {
+                    NavigationLink(value: PulseTarget(id: e.id, name: e.name)) { personLine(person) }
+                        .buttonStyle(.plain)
+                } else {
+                    personLine(person)
+                }
+            }
+            Button { keepCommitmentCard(c) } label: {
+                Text("Kept ✓").font(.troveMono(12, .medium)).foregroundStyle(Theme.ink)
+                    .padding(.vertical, 7).padding(.horizontal, 14)
+                    .background(accent.opacity(0.18), in: Capsule())
+                    .overlay(Capsule().stroke(accent.opacity(0.4), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+        .onAppear {
+            guard !surfacedCommitments.contains(c.id) else { return }
+            surfacedCommitments.insert(c.id)
+            Analytics.capture("commitment_surfaced", ["kind": c.kind, "surface": "pulse", "reason": c.reason ?? "none"])
+        }
+    }
+
+    private func personLine(_ name: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "person.fill").font(.system(size: 10)).foregroundStyle(Theme.muted)
+            Text(name).font(.troveMono(12)).foregroundStyle(Theme.muted)
+        }
+    }
+
+    private func undoBar(_ u: CommitmentUndo) -> some View {
+        HStack {
+            Text(u.label).font(.troveMono(12)).foregroundStyle(Theme.muted)
+            Spacer()
+            Button("Undo") { undoCommitment(u) }
+                .font(.troveMono(12, .medium)).foregroundStyle(Theme.ink)
+        }
+        .padding(.vertical, 10).padding(.horizontal, 14)
+        .background(Theme.surface.opacity(0.6), in: Capsule())
+        .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+    }
+
+    // Actions — optimistic (drop locally + show Undo), then persist (the server call
+    // bumps dataVersion → load() reconciles). Undo reopens the commitment.
+    private func keepCommitmentCard(_ c: Commitment) {
+        Haptics.success(); dropCommitment(c.id)
+        commitmentUndo = CommitmentUndo(id: c.id, label: "Kept ✓")
+        Task { try? await session.markCommitmentDone(c.id, kind: c.kind, reason: c.reason) }
+        scheduleUndoDismiss(c.id)
+    }
+    private func snoozeCommitmentCard(_ c: Commitment) {
+        Haptics.soft(); dropCommitment(c.id)
+        commitmentUndo = CommitmentUndo(id: c.id, label: "Snoozed 3 days")
+        Task { await session.snoozeCommitment(c.id, days: 3, kind: c.kind) }
+        scheduleUndoDismiss(c.id)
+    }
+    private func releaseCommitmentCard(_ c: Commitment) {
+        Haptics.soft(); dropCommitment(c.id)
+        commitmentUndo = CommitmentUndo(id: c.id, label: "Cleared")
+        Task { try? await session.releaseCommitment(c.id, kind: c.kind) }
+        scheduleUndoDismiss(c.id)
+    }
+    private func undoCommitment(_ u: CommitmentUndo) {
+        commitmentUndo = nil
+        Task { await session.reopenCommitment(u.id) }
+    }
+    private func dropCommitment(_ id: Int) { commitments.removeAll { $0.id == id } }
+    private func scheduleUndoDismiss(_ id: Int) {
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            if commitmentUndo?.id == id { commitmentUndo = nil }
+        }
+    }
+
     private func load() async {
         state = .loading
         do {
@@ -364,6 +497,8 @@ struct PulseView: View {
             state = .loaded(resp.items)
             // Non-fatal: a receipt failure must never block Pulse (leave the card hidden).
             receipt = try? await session.loadReceipt()
+            // Theme D (D3): follow-through commitments — also non-fatal.
+            commitments = (try? await session.loadCommitments()) ?? []
         }
         catch { state = .failed((error as? APIError)?.errorDescription ?? error.localizedDescription) }
     }
