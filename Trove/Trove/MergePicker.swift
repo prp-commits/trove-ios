@@ -55,18 +55,48 @@ struct MergePicker: View {
                 }
             }
             .task { if case .idle = state { await load() } }
-            .confirmationDialog("Merge \(sourceName) into \(target?.name ?? "")?",
-                                isPresented: Binding(get: { target != nil && !merging },
-                                                     set: { if !$0 { target = nil } }),
-                                titleVisibility: .visible, presenting: target) { t in
-                Button("Merge", role: .destructive) { Task { await merge(into: t) } }
-                Button("Cancel", role: .cancel) {}
-            } message: { t in
-                Text("\(sourceName)'s notes move into \(t.name). This can't be undone.")
-            }
+            // On-brand confirm (@design): a Trove card over a dim, not the iOS action sheet —
+            // troveSerif/troveMono + pill buttons, the destructive one in Theme.danger. Kept as an
+            // overlay (not a sheet) to avoid stacking a system sheet on the picker's own sheet.
+            .overlay { mergeConfirm }
+            .animation(.easeInOut(duration: 0.2), value: target?.id)
             .alert("Couldn't merge", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(error ?? "") }
+        }
+    }
+
+    @ViewBuilder private var mergeConfirm: some View {
+        if let t = target {
+            ZStack {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                    .onTapGesture { if !merging { target = nil } }
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Merge into").font(.troveMono(11, .medium)).tracking(0.5).foregroundStyle(Theme.muted)
+                    Text("Merge \(sourceName) into \(t.name)?")
+                        .font(.troveSerif(24)).foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(sourceName)'s notes move into \(t.name). This can't be undone.")
+                        .font(.troveMono(12)).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        Button("Cancel") { target = nil }
+                            .buttonStyle(PillButtonStyle(filled: false))
+                            .disabled(merging)
+                        Button(merging ? "Merging…" : "Merge") { Task { await merge(into: t) } }
+                            .buttonStyle(PillButtonStyle(filled: true, tint: Theme.danger))
+                            .disabled(merging)
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(24)
+                .frame(maxWidth: 360, alignment: .leading)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).stroke(Theme.line, lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 24, y: 8)
+                .padding(.horizontal, 28)
+            }
+            .transition(.opacity)
         }
     }
 
