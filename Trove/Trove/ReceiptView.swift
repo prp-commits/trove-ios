@@ -73,13 +73,13 @@ struct ReceiptCard: View {
             return "You remembered \(n) new thing\(n == 1 ? "" : "s")."
         }
         let n = receipt.plansKept
-        return "You kept \(n) plan\(n == 1 ? "" : "s")."
+        return "You followed through \(n) time\(n == 1 ? "" : "s")."
     }
 
     private var statChips: [String] {
         var out: [String] = []
         if receipt.reconnectedPeople > 0 { out.append("\(receipt.reconnectedPeople) reconnected") }
-        if receipt.plansKept > 0 { out.append("\(receipt.plansKept) plan\(receipt.plansKept == 1 ? "" : "s") kept") }
+        if receipt.plansKept > 0 { out.append("\(receipt.plansKept) follow-through\(receipt.plansKept == 1 ? "" : "s")") }
         // Only surface "remembered" as a chip when it isn't already the headline.
         if receipt.rememberedNew > 0 && receipt.showedUpPeople > 0 {
             out.append("\(receipt.rememberedNew) remembered")
@@ -113,7 +113,7 @@ struct ReceiptDetailView: View {
                     VStack(spacing: 10) {
                         statRow(receipt.showedUpPeople, "Showed up for", receipt.showedUpPeople == 1 ? "person" : "people")
                         statRow(receipt.reconnectedPeople, "Reconnected", "after a quiet stretch")
-                        statRow(receipt.plansKept, "Plans kept", "moments you showed up for")
+                        statRow(receipt.plansKept, "Follow-throughs", "plans kept and questions asked")
                         statRow(receipt.rememberedNew, "Remembered", "new notes about \(receipt.rememberedAboutPeople) \(receipt.rememberedAboutPeople == 1 ? "profile" : "profiles")")
                     }
 
@@ -286,7 +286,7 @@ struct ReceiptShareCard: View {
             return "I remembered \(n) new thing\(n == 1 ? "" : "s")."
         }
         let n = receipt.plansKept
-        return "I kept \(n) plan\(n == 1 ? "" : "s")."
+        return "I followed through \(n) time\(n == 1 ? "" : "s")."
     }
 
     private var subLines: [String] {
@@ -295,7 +295,7 @@ struct ReceiptShareCard: View {
             out.append("Reconnected with \(receipt.reconnectedPeople) after a quiet stretch")
         }
         if receipt.plansKept > 0 && receipt.showedUpPeople > 0 {
-            out.append("Kept \(receipt.plansKept) plan\(receipt.plansKept == 1 ? "" : "s")")
+            out.append("\(receipt.plansKept) follow-through\(receipt.plansKept == 1 ? "" : "s")")
         }
         if let span = receipt.library.monthsSpan, span >= 1, receipt.library.people > 0 {
             out.append("My library spans \(span) month\(span == 1 ? "" : "s") · \(receipt.library.people) \(receipt.library.people == 1 ? "person" : "people")")
@@ -335,6 +335,7 @@ enum ReceiptAnalytics {
             "surface": surface,
             "showed_up_bucket": bucket(r.showedUpPeople),
             "remembered_bucket": bucket(r.rememberedNew),
+            "follow_throughs_bucket": bucket(r.plansKept),
             "has_activity": r.hasActivity,
         ])
     }
