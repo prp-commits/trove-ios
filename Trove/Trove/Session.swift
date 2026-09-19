@@ -50,6 +50,7 @@ final class Session {
             state = .signedIn(me.user)
             publishActiveAccount(me.user.id)   // authoritative: the token's real owner
             Analytics.identify(userId: me.user.id, provider: me.user.provider)
+            Analytics.appOpen(launchSource: "cold")   // retention: a cold launch with a live session
         } catch {
             state = .signedOut
         }
@@ -518,6 +519,7 @@ final class Session {
             state = .signedIn(auth.user)
             Analytics.identify(userId: auth.user.id, provider: auth.user.provider)
             Analytics.capture("signin", ["provider": auth.user.provider ?? "email"])
+            Analytics.appOpen(launchSource: "cold")   // first session after sign-in → is_first_open
         } catch {
             authError = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }

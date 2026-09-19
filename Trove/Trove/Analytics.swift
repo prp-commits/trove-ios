@@ -62,6 +62,38 @@ enum Analytics {
         URLSession.shared.dataTask(with: req).resume()   // never blocks the UI
     }
 
+    // MARK: - App open (retention signal, content-free)
+    // The D30-retention return event (ANALYTICS_EVENTS.md). Fires on cold launch /
+    // sign-in (launchSource set) and on warm resume (launchSource nil → session-ized:
+    // only re-fires after a 30-min gap, so micro-resumes — Control Center, a permission
+    // sheet, the share sheet — don't inflate the count). Props are content-free: a bool,
+    // an int day-count, and a closed-enum source. Install date is per-install (not
+    // per-user) so `days_since_install` survives a sign-out/in.
+    private static let installKey = "analytics.installDate"      // per-install, not namespaced
+    private static let firstOpenKey = "analytics.firstOpenDone"
+    private static let lastOpenKey = "analytics.lastOpenAt"
+    private static let sessionGap: TimeInterval = 30 * 60
+
+    static func appOpen(launchSource: String? = nil) {
+        guard !optedOut, distinctId != nil else { return }   // no opens counted for signed-out/demo
+        let now = Date()
+        let install: Date
+        if let d = defaults.object(forKey: installKey) as? Date { install = d }
+        else { install = now; defaults.set(now, forKey: installKey) }
+        // Warm resume: skip if we already logged an open within the session window.
+        if launchSource == nil, let last = defaults.object(forKey: lastOpenKey) as? Date,
+           now.timeIntervalSince(last) < sessionGap { return }
+        defaults.set(now, forKey: lastOpenKey)
+        let isFirst = !defaults.bool(forKey: firstOpenKey)
+        if isFirst { defaults.set(true, forKey: firstOpenKey) }
+        var props: [String: Any] = [
+            "is_first_open": isFirst,
+            "days_since_install": Int(now.timeIntervalSince(install) / 86_400),
+        ]
+        if let src = launchSource { props["launch_source"] = src }   // closed enum; omitted on warm resume
+        capture("app_open", props)
+    }
+
     // MARK: - Activation milestone (content-free)
     // Fires `activation_reached` ONCE per user the first time they reach **>=3 captures
     // AND a value moment** (a successful Ask, or an acted-on nudge). Carries

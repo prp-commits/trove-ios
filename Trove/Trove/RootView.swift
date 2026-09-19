@@ -51,6 +51,9 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            // Retention: a warm resume counts as an app open (session-ized in Analytics
+            // so micro-resumes don't inflate it). Cold launches fire from Session.bootstrap.
+            Analytics.appOpen()
             // Returning to the foreground may follow an external capture (Share
             // Extension), which doesn't bump dataVersion — refresh list screens.
             session.markDataPossiblyChanged()
