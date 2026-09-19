@@ -487,6 +487,9 @@ struct OtherCard: Decodable, Sendable {
     let entityB: EntityRef?
     let citeA: [ConnectionCite]?
     let citeB: [ConnectionCite]?
+    // D266: the deck-chosen person to text — the connection side NOT already nudged by
+    // another card (a/b order is arbitrary, so this overrides the "entity_a if person" default).
+    let connectionTargetEntityId: Int?   // ← connection_target_entity_id
     // "Go together" cards (D143 Phase 3): a dated event ⨯ the person to bring.
     let matchId: Int?              // ← match_id (act/dismiss target)
     let why: String?              // grounded one-liner (the gate's reason)
@@ -504,7 +507,13 @@ struct OtherCard: Decodable, Sendable {
 
     var isTogether: Bool { type == "together" }
     /// The person side of a connection (if any) — the one we offer "text" on.
+    /// D266: honor the deck's chosen target first (the person not already nudged this
+    /// deck); fall back to the legacy "entity_a if person" when the server sends none.
     var connectionPerson: EntityRef? {
+        if let t = connectionTargetEntityId {
+            if entityA?.id == t { return entityA }
+            if entityB?.id == t { return entityB }
+        }
         if entityA?.isPerson == true { return entityA }
         if entityB?.isPerson == true { return entityB }
         return nil
